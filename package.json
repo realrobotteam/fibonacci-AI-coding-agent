@@ -1,0 +1,198 @@
+{
+  "name": "fibonacci-agent",
+  "displayName": "Fibonacci AI Agent",
+  "description": "Autonomous AI coding agent for the Fibonacci AI platform with Persian (RTL) UI, file/terminal/browser/MCP tools.",
+  "version": "0.1.0",
+  "publisher": "fibonacci",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:fibonacci.agentView"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fibonacci-sidebar",
+          "title": "Fibonacci Agent",
+          "icon": "media/fibonacci-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "fibonacci-sidebar": [
+        {
+          "type": "webview",
+          "id": "fibonacci.agentView",
+          "name": "Fibonacci Agent",
+          "icon": "media/fibonacci-icon.svg",
+          "contextualTitle": "Fibonacci Agent"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "fibonacci.configure",
+        "title": "Fibonacci: پیکربندی تنظیمات",
+        "category": "Fibonacci"
+      },
+      {
+        "command": "fibonacci.addMcpServer",
+        "title": "Fibonacci: افزودن سرور MCP",
+        "category": "Fibonacci"
+      },
+      {
+        "command": "fibonacci.newChat",
+        "title": "Fibonacci: گفت‌وگوی جدید",
+        "category": "Fibonacci"
+      },
+      {
+        "command": "fibonacci.switchModel",
+        "title": "Fibonacci: تعویض مدل",
+        "category": "Fibonacci"
+      }
+    ],
+    "configuration": {
+      "title": "Fibonacci Agent",
+      "properties": {
+        "fibonacci.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "کلید API پلتفرم Fibonacci",
+          "markdownDescription": "کلید API پلتفرم Fibonacci را وارد کنید."
+        },
+        "fibonacci.baseURL": {
+          "type": "string",
+          "default": "http://my.fibonacci.monster/api/v1",
+          "description": "آدرس پایه API Fibonacci"
+        },
+        "fibonacci.defaultModel": {
+          "type": "string",
+          "default": "fibonacci-1-pro-max",
+          "enum": [
+            "fibonacci-1-pro-max",
+            "fibonacci-1-agentic"
+          ],
+          "enumDescriptions": [
+            "مدل اقتصادی (Pro Max)",
+            "مدل حرفه‌ای (Agentic)"
+          ],
+          "description": "مدل پیش‌فرض Fibonacci"
+        },
+        "fibonacci.professionalModel": {
+          "type": "string",
+          "default": "fibonacci-1-agentic",
+          "description": "مدل حرفه‌ای برای وظایف پیچیده"
+        },
+        "fibonacci.language": {
+          "type": "string",
+          "default": "fa",
+          "enum": [
+            "fa",
+            "en"
+          ],
+          "description": "زبان رابط کاربری"
+        },
+        "fibonacci.enableMCP": {
+          "type": "boolean",
+          "default": true,
+          "description": "فعال‌سازی یکپارچه‌سازی سرورهای MCP"
+        },
+        "fibonacci.mcpServers": {
+          "type": "array",
+          "default": [],
+          "description": "فهرست سرورهای MCP پیکربندی‌شده",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "command": {
+                "type": "string"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "env": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "fibonacci.autoApproveReadOnly": {
+          "type": "boolean",
+          "default": true,
+          "description": "تأیید خودکار ابزارهای فقط‌خواندنی (مانند read_file)"
+        },
+        "fibonacci.maxIterations": {
+          "type": "number",
+          "default": 25,
+          "description": "حداکثر تکرار حلقه عامل"
+        }
+      }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "fibonacci.newChat",
+          "when": "view == fibonacci.agentView",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "build:webview": "vite build",
+    "watch:webview": "vite build --watch",
+    "package": "npm run build:webview && npm run compile -- --production",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src --ext ts",
+    "test": "node ./dist/test/runTest.js",
+    "vsce:package": "vsce package",
+    "vsce:package:vscode": "npx @vscode/vsce package"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@types/diff": "^7.0.2",
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.55",
+    "@types/react-dom": "^18.2.18",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "@vscode/vsce": "^3.9.2",
+    "autoprefixer": "^10.4.17",
+    "diff": "^5.1.0",
+    "esbuild": "^0.20.0",
+    "eslint": "^8.56.0",
+    "npm-run-all": "^4.1.5",
+    "openai": "^4.26.0",
+    "postcss": "^8.4.33",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwindcss": "^3.4.1",
+    "tailwindcss-rtl": "^0.9.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.12",
+    "zustand": "^4.5.0"
+  }
+}

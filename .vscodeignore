@@ -1,0 +1,16 @@
+.vscode/**
+.vscode-test/**
+src/**
+node_modules/**
+!node_modules/vscode/vscode.d.ts
+.gitignore
+.eslintrc.js
+tsconfig.json
+tsconfig.webview.json
+vite.config.ts
+tailwind.config.js
+postcss.config.js
+**/*.map
+**/*.ts
+out/**
+out-webview/**
