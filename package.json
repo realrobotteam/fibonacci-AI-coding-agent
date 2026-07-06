@@ -1,9 +1,23 @@
 {
   "name": "fibonacci-agent",
   "displayName": "Fibonacci AI Agent",
-  "description": "Autonomous AI coding agent for the Fibonacci AI platform with Persian (RTL) UI, file/terminal/browser/MCP tools.",
-  "version": "0.1.0",
-  "publisher": "fibonacci",
+  "description": "AI-powered coding assistant with Fibonacci patterns for VS Code",
+  "version": "1.0.3",
+  "publisher": "amirhosseinmehrdoost",
+  "author": {
+    "name": "amirhossein mehrdoost",
+    "url": "https://github.com/realrobotteam"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/realrobotteam/fibonacci-AI-coding-agent",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/realrobotteam/fibonacci-AI-coding-agent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/realrobotteam/fibonacci-AI-coding-agent/issues"
+  },
+  "icon": "media/fibonacci-icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -11,6 +25,12 @@
     "AI",
     "Chat",
     "Other"
+  ],
+  "keywords": [
+    "fibonacci-agent",
+    "ai-coding",
+    "golden-ratio",
+    "code-generator"
   ],
   "activationEvents": [
     "onStartupFinished",
@@ -23,7 +43,7 @@
         {
           "id": "fibonacci-sidebar",
           "title": "Fibonacci Agent",
-          "icon": "media/fibonacci-icon.svg"
+          "icon": "media/fibonacci-icon.png"
         }
       ]
     },
@@ -33,7 +53,7 @@
           "type": "webview",
           "id": "fibonacci.agentView",
           "name": "Fibonacci Agent",
-          "icon": "media/fibonacci-icon.svg",
+          "icon": "media/fibonacci-icon.png",
           "contextualTitle": "Fibonacci Agent"
         }
       ]
