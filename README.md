@@ -2,15 +2,7 @@
 
 An autonomous AI coding agent for the **Fibonacci AI platform** that lives in the VS Code sidebar. Built with TypeScript + React + Tailwind CSS, with full **Persian (RTL)** UI support.
 
-![version](https://img.shields.io/badge/version-1.0.2-FE03C3)
-![vscode](https://img.shields.io/badge/VS%20Code-1.85+-blue)
-![lang](https://img.shields.io/badge/UI-فارسی%20RTL-success)
-
-Team: https://fibonacci.monster/team/
-
-visit: https://fibonacci.monster/agent.html 
-
-VS CODE MARKET: https://marketplace.visualstudio.com/items?itemName=amirhosseinmehrdoost.fibonacci-agent
+**Version:** 1.0.3 | **VS Code:** 1.85+ | **UI:** Persian (RTL)
 
 ## Features
 
@@ -43,7 +35,7 @@ VS CODE MARKET: https://marketplace.visualstudio.com/items?itemName=amirhosseinm
 
 ### 🌐 Persian Language Support
 - Full RTL layout via `tailwindcss-rtl`
-- Vazirmatn font 
+- Vazirmatn font from CDN
 - All UI text translated (fa + en fallback)
 - Persian system prompt instructions
 - Persian date/time formatting in chat history
