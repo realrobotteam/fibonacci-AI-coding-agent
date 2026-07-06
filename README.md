@@ -2,7 +2,7 @@
 
 An autonomous AI coding agent for the **Fibonacci AI platform** that lives in the VS Code sidebar. Built with TypeScript + React + Tailwind CSS, with full **Persian (RTL)** UI support.
 
-**Version:** 1.0.2 | **VS Code:** 1.85+ | **UI:** Persian (RTL)
+**Version:** 1.0.3 | **VS Code:** 1.85+ | **UI:** Persian (RTL)
 
 ## Features
 
