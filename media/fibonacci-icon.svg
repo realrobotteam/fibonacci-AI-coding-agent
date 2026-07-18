@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Fibonacci logo: open spiral nautilus shape, magenta #FE03C3, flat fill -->
+  <!-- Outer arc wraps ~1.5 turns, inner swirl terminates in a small hook -->
+  <path
+    d="M 64 14
+       C 100 14 116 38 116 64
+       C 116 92 92 112 64 112
+       C 40 112 22 92 22 68
+       C 22 48 38 30 60 30
+       C 78 30 92 44 92 62
+       C 92 78 80 90 66 90
+       C 54 90 46 82 46 70
+       C 46 60 54 54 62 54
+       C 70 54 76 60 76 68
+       C 76 73 72 77 68 77
+       C 65 77 64 75 64 73
+       Z"
+    fill="#FE03C3"
+    fill-rule="evenodd"
+    stroke="none"
+  />
+</svg>

@@ -35,7 +35,7 @@ export const InputArea: React.FC = () => {
   const cancel = () => postToHost({ type: 'CANCEL' });
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       send();
     }

@@ -1,0 +1,52 @@
+# System files
+.DS_Store
+Thumbs.db
+*.log
+
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# Node.js files
+node_modules/
+npm-debug.log
+package-lock.json
+yarn.lock
+
+# Test files
+test/
+*.test.js
+*.spec.js
+.vscode-test/
+
+# Development files
+.vscode/
+src/
+tsconfig.json
+tsconfig.webview.json
+webpack.config.js
+vite.config.ts
+tailwind.config.js
+postcss.config.js
+esbuild.js
+.eslintrc.js
+
+# Build output
+out/
+out-webview/
+
+# Source maps
+**/*.map
+
+# TypeScript source (only JS ships in the VSIX)
+**/*.ts
+
+# Package files
+*.vsix
+
+# SVG icons (only PNG ships to Marketplace)
+media/*.svg
+
+# Scripts directory
+scripts/
