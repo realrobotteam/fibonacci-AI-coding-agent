@@ -19,7 +19,7 @@ export class FibonacciClient {
 
   refresh(): void {
     const cfg = vscode.workspace.getConfiguration('fibonacci');
-    this.baseURL = cfg.get<string>('baseURL') ?? 'http://my.fibonacci.monster/api/v1';
+    this.baseURL = cfg.get<string>('baseURL') ?? 'https://my.fibonacci.monster/api/v1';
     this.apiKey = cfg.get<string>('apiKey') ?? '';
 
     if (this.apiKey) {
@@ -217,5 +217,40 @@ export class FibonacciClient {
     });
 
     return { content, toolCalls, finishReason };
+  }
+
+  /**
+   * Send a simple non-streaming prompt to the model and return the response.
+   * Used for tasks like prompt improvement where we don't need streaming
+   * or tool calls.
+   */
+  async improvePrompt(prompt: string, model?: string): Promise<string> {
+    if (!this.client) {
+      throw new Error(
+        'کلید API تنظیم نشده است. لطفاً از تنظیمات Fibonacci کلید خود را وارد کنید.'
+      );
+    }
+
+    const useModel = model || 'fibonacci-1-pro-max';
+    try {
+      const response = await this.client.chat.completions.create({
+        model: useModel,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        temperature: 0.7,
+        stream: false,
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      return typeof content === 'string' ? content.trim() : '';
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('[fibonacci-agent] improvePrompt failed:', errMsg);
+      throw new Error(`Failed to improve prompt: ${errMsg}`);
+    }
   }
 }

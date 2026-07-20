@@ -1,5 +1,5 @@
 import * as crypto from 'node:crypto';
-import type { ApprovalRequest, ApprovalResponse } from '../types';
+import type { ApprovalRequest, ApprovalResponse, AutoApproveMode } from '../types';
 import { ToolRegistry } from './toolRegistry';
 
 interface PendingEntry {
@@ -12,8 +12,9 @@ interface PendingEntry {
  * must be confirmed by the user. Rules:
  *
  *  1. If the tool's `requiresApproval` is false → run automatically.
- *  2. If the tool is read-only AND `fibonacci.autoApproveReadOnly` is true → run automatically.
- *  3. Otherwise → ask the user (display Persian approval dialog in webview).
+ *  2. If `autoApproveMode` is 'all' → run automatically.
+ *  3. If the tool is read-only AND `autoApproveMode` is 'read-only' → run automatically.
+ *  4. Otherwise → ask the user (display Persian approval dialog in webview).
  *
  * Pending requests are stored in-memory and resolved when the webview posts
  * an APPROVE message back.
@@ -25,11 +26,11 @@ export class ApprovalManager {
 
   constructor(
     private registry: ToolRegistry,
-    private autoApproveReadOnly: boolean
+    private autoApproveMode: AutoApproveMode
   ) {}
 
-  setAutoApproveReadOnly(value: boolean): void {
-    this.autoApproveReadOnly = value;
+  setAutoApproveMode(value: AutoApproveMode): void {
+    this.autoApproveMode = value;
   }
 
   setUpdateHandler(fn: (reqs: ApprovalRequest[]) => void): void {
@@ -51,15 +52,25 @@ export class ApprovalManager {
   }): Promise<ApprovalResponse> {
     const tool = this.registry.get(params.toolName);
 
-    // Rule 1 & 2: auto-approve safe operations
-    if (tool && !tool.definition.requiresApproval) {
-      return { id: '', approved: true };
-    }
-    if (tool && tool.definition.readOnly && this.autoApproveReadOnly) {
-      return { id: '', approved: true };
+    // When autoApproveMode is 'none', ALL tools require approval
+    // (overrides requiresApproval: false on individual tools)
+    if (this.autoApproveMode === 'none') {
+      // fall through to ask the user
+    } else {
+      // Rule 1: auto-approve tools that don't require approval
+      if (tool && !tool.definition.requiresApproval) {
+        return { id: '', approved: true };
+      }
+      // Rule 2: mode-based auto-approve
+      if (this.autoApproveMode === 'all') {
+        return { id: '', approved: true };
+      }
+      if (tool && tool.definition.readOnly && this.autoApproveMode === 'read-only') {
+        return { id: '', approved: true };
+      }
     }
 
-    // Rule 3: ask the user
+    // Ask the user
     const id = crypto.randomUUID();
     const request: ApprovalRequest = {
       id,

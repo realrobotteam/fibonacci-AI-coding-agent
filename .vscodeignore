@@ -50,3 +50,11 @@ media/*.svg
 
 # Scripts directory
 scripts/
+
+# Binaries / executables that shouldn't ship
+mimo.exe
+*.exe
+
+# Tool workspace configs
+.kilo/
+.mimocode/

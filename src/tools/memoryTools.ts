@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ToolDefinition } from '../types';
 import { schema } from '../core/toolRegistry';
@@ -36,7 +37,7 @@ function getStoragePath(context?: vscode.ExtensionContext): string {
   if (context && context.globalStorageUri) {
     return path.join(context.globalStorageUri.fsPath, STORAGE_FILE);
   }
-  const home = process.env.HOME || process.env.USERPROFILE || process.cwd();
+  const home = process.env.HOME || process.env.USERPROFILE || os.homedir();
   return path.join(home, '.fibonacci-agent', STORAGE_FILE);
 }
 

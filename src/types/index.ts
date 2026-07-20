@@ -3,7 +3,9 @@
 
 export type Role = 'user' | 'assistant' | 'system' | 'tool' | 'developer';
 
-export type AgentMode = 'coding' | 'plan';
+export type AgentMode = 'coding' | 'plan' | 'ask' | 'debug' | 'auto';
+
+export type AutoApproveMode = 'none' | 'read-only' | 'all';
 
 export interface ModeSwitchRequest {
   mode: AgentMode;
@@ -83,11 +85,16 @@ export interface ApprovalResponse {
   reason?: string;
 }
 
+export type ThemeBehavior = 'auto' | 'dark' | 'light';
+export type StartupView = 'last-chat' | 'home';
+export type ContextCompression = 'auto' | 'manual';
+
 export interface McpServerConfig {
   name: string;
   command: string;
   args?: string[];
   env?: Record<string, string>;
+  enabled?: boolean;
 }
 
 export interface ModelChoice {
@@ -135,7 +142,17 @@ export type WebviewToHostMessage =
   | { type: 'GET_HISTORY' }
   | { type: 'MODE_SWITCH_RESPONSE'; approved: boolean; reason?: string }
   | { type: 'GET_SKILLS' }
-  | { type: 'INVOKE_SKILL'; name: string; args?: Record<string, unknown> };
+  | { type: 'INVOKE_SKILL'; name: string; args?: Record<string, unknown> }
+  | { type: 'SET_AGENT_MODE'; mode: AgentMode }
+  | { type: 'SET_AUTO_APPROVE_MODE'; mode: AutoApproveMode }
+  | { type: 'SET_CONFIG'; key: string; value: unknown }
+  | { type: 'RENAME_CHAT'; chatId: string; title: string }
+  | { type: 'IMPROVE_PROMPT'; text: string }
+  | { type: 'GET_TOOL_LIST' }
+  | { type: 'TEST_PROVIDER_CONNECTION'; providerId: string }
+  | { type: 'RESET_SETTINGS' }
+  | { type: 'EXPORT_SETTINGS' }
+  | { type: 'IMPORT_SETTINGS'; data: string };
 
 export type HostToWebviewMessage =
   | { type: 'STATE'; state: AgentState }
@@ -154,7 +171,12 @@ export type HostToWebviewMessage =
   | { type: 'HISTORY'; entries: Array<{ id: string; title: string; ts: number; messageCount: number; model: string }> }
   | { type: 'TODOS_UPDATE'; todos: TodoItem[] }
   | { type: 'MODE_SWITCH_REQUEST'; request: ModeSwitchRequest }
-  | { type: 'SKILLS'; skills: Array<{ name: string; description: string; category: string }> };
+  | { type: 'SKILLS'; skills: Array<{ name: string; description: string; category: string }> }
+  | { type: 'THEME_CHANGE'; theme: 'dark' | 'light' | 'high-contrast' }
+  | { type: 'IMPROVED_PROMPT'; original: string; improved: string }
+  | { type: 'TOOL_LIST'; tools: Array<{ name: string; category: ToolCategory; readOnly: boolean; requiresApproval: boolean }> }
+  | { type: 'PROVIDER_TEST_RESULT'; providerId: string; ok: boolean; error?: string }
+  | { type: 'SETTINGS_EXPORT'; data: string };
 
 export interface AgentConfig {
   apiKeySet: boolean;
@@ -163,7 +185,7 @@ export interface AgentConfig {
   professionalModel: string;
   language: 'fa' | 'en';
   enableMCP: boolean;
-  autoApproveReadOnly: boolean;
+  autoApproveMode: AutoApproveMode;
   maxIterations: number;
   /** When true, the agent uses the Hermes chat template format for tool calls. */
   hermesMode: boolean;
@@ -171,6 +193,28 @@ export interface AgentConfig {
   showReasoning: boolean;
   /** When true, independent tool calls are executed concurrently. */
   parallelToolCalls: boolean;
+  /** Per-mode model assignments. */
+  modelAssignments?: Record<AgentMode, string>;
+  /** Provider configurations. */
+  providers?: ProviderConfig[];
+  // General section
+  themeBehavior?: ThemeBehavior;
+  startupView?: StartupView;
+  notifyOnTaskComplete?: boolean;
+  // Permissions section
+  toolOverrides?: Record<string, boolean>;
+  // Advanced section
+  contextCompression?: ContextCompression;
+  historyPath?: string;
+}
+
+export interface ProviderConfig {
+  id: string;
+  name: string;
+  baseURL: string;
+  apiKey: string;
+  models: ModelChoice[];
+  enabled: boolean;
 }
 
 export interface AgentState {

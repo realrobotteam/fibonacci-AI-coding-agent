@@ -82,7 +82,7 @@ A three-tier prompt architecture (stable / context / volatile) mirroring the Her
 - Destructive operations (write, edit, execute) require user approval
 - **Code is NEVER shown in chat** — only file path + status
 - Approval dialog shows only the target (path/command), not full code
-- Read-only tools can be auto-approved (configurable)
+- Read-only tools can be auto-approved, with configurable approval mode (none / read-only / all)
 
 ### 🌐 Persian Language Support
 - Full RTL layout via `tailwindcss-rtl`
@@ -155,7 +155,7 @@ Open **Settings → Fibonacci** or edit `settings.json`:
 | `fibonacci.professionalModel` | `fibonacci-1-agentic` | Professional model |
 | `fibonacci.language` | `fa` | UI language (`fa` or `en`) |
 | `fibonacci.enableMCP` | `true` | Enable MCP integration |
-| `fibonacci.autoApproveReadOnly` | `true` | Auto-approve read-only tools |
+| `fibonacci.autoApproveMode` | `none` | Auto-approve mode (`none`, `read-only`, `all`) |
 | `fibonacci.maxIterations` | `25` | Max agent loop iterations |
 | `fibonacci.mcpServers` | `[]` | MCP server configurations |
 
@@ -235,8 +235,9 @@ The `toolParser.ts` extracts these blocks from the assistant's text response, an
 
 ```
 AI emits tool call → ApprovalManager decides:
-  • Tool is read-only AND autoApproveReadOnly=true → auto-run
-  • Tool is write/execute → show approval dialog
+  • autoApproveMode='all' → auto-run any tool
+  • autoApproveMode='read-only' AND tool is read-only → auto-run
+  • Otherwise → show approval dialog
 User approves → tool runs → result fed back to AI
 User rejects → rejection fed back to AI
 ```

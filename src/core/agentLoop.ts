@@ -1,11 +1,11 @@
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import * as vscode from 'vscode';
-import type { AgentMode, ChatMessage, ModeSwitchRequest, TodoItem } from '../types';
+import type { AgentMode, AutoApproveMode, ChatMessage, ModeSwitchRequest, TodoItem, ApprovalResponse } from '../types';
 import { FibonacciClient } from '../api/fibonacciClient';
 import { ToolRegistry, type ToolContext } from './toolRegistry';
 import { ApprovalManager, describeToolCall } from './approvalManager';
 import { parseToolCalls } from './toolParser';
-import { buildSystemPrompt, type ToolFormat, ENFORCEMENT_RETRY_PROMPT, TOOL_RESULT_FORMAT_NOTE } from './systemPrompt';
+import { buildSystemPrompt, type ToolFormat, ENFORCEMENT_RETRY_PROMPT } from './systemPrompt';
 import { formatToolResponseBlock } from './hermesTemplate';
 import { PREVIEW_TOOLS, previewToolCall, commitPreview, revertPreview, type PreviewHandle } from './filePreview';
 import { LiveCodeStreamer } from './liveCoder';
@@ -15,7 +15,7 @@ interface AgentLoopDeps {
   client: FibonacciClient;
   registry: ToolRegistry;
   approvals: ApprovalManager;
-  autoApproveReadOnly: boolean;
+  autoApproveMode: AutoApproveMode;
   skills: SkillsRegistry;
   callbacks: {
     onAssistantStart: () => string;
@@ -190,7 +190,9 @@ export class AgentLoop {
               // Feed the delta to the live coder. It will open the editor and
               // show code in real-time if a file-writing tool call is detected
               // in the TEXT stream (Hermes or XML format).
-              void liveCoder.processDelta(delta, rawBuffer);
+              liveCoder.processDelta(delta, rawBuffer).catch((err) => {
+                console.error('[fibonacci-agent] Live coder processDelta error:', err);
+              });
             } catch (err) {
               console.error('[fibonacci-agent] onDelta callback error:', err);
             }
@@ -201,7 +203,9 @@ export class AgentLoop {
             // 'auto' and the API emits delta.tool_calls).
             // CRITICAL FIX (bug #2): Same defensive wrap as onDelta.
             try {
-              void liveCoder.processOpenAIDelta(toolName, argsFragment, fullArgs);
+              liveCoder.processOpenAIDelta(toolName, argsFragment, fullArgs).catch((err) => {
+                console.error('[fibonacci-agent] Live coder processOpenAIDelta error:', err);
+              });
             } catch (err) {
               console.error('[fibonacci-agent] onToolCallDelta callback error:', err);
             }
@@ -278,16 +282,21 @@ export class AgentLoop {
 
         if (
           currentMode !== 'plan' &&
+          currentMode !== 'ask' &&
           nonModeSwitchCalls.length === 0 &&
           looksLikeFileRequest &&
           !allToolsBlocked &&  // Don't enforce if tools are blocked
           (hasCodeBlock || hasPseudoToolCall || hasHallucination || isAsking)
         ) {
-          // Remove the hallucinated assistant message from the UI so the
-          // user doesn't see duplicate "فایل ساخته شد" bubbles. The message
-          // stays in the `messages` array for the API to see the conversation
-          // history, but is removed from the visible chat.
-          this.deps.callbacks.onAssistantRemove(assistantId);
+          // Keep the assistant message visible. Previously this code removed
+          // the message via onAssistantRemove, which caused user-visible
+          // AI responses to disappear in many common cases (any prose with a
+          // code block, any clarifying question, ANY mention of
+          // "file created" — including normal explanations). The message stays
+          // in the visible chat AND in the in-memory `messages` array we send
+          // to the API; we only inject a follow-up user message asking the
+          // agent to also emit a real tool call.
+          //
 
           // If we've exhausted retries, fall back to directly creating a
           // default file so the user gets SOMETHING rather than a loop of
@@ -419,11 +428,14 @@ export class AgentLoop {
             continue;
           }
 
-          // Other tools — require approval based on tool definition
+          // Other tools — require approval based on tool definition and autoApproveMode
           const tool = this.deps.registry.get(call.name);
           const needsApproval =
-            tool?.definition.requiresApproval &&
-            !(tool.definition.readOnly && this.deps.autoApproveReadOnly);
+            this.deps.autoApproveMode === 'none'
+              ? true  // 'none' mode: ALL tools require approval
+              : tool?.definition.requiresApproval &&
+                this.deps.autoApproveMode !== 'all' &&
+                !(tool.definition.readOnly && this.deps.autoApproveMode === 'read-only');
 
           // ── BLOCK all tools after ANY rejection ───────────────────────
           // If the user rejected ANY tool earlier in this run, block ALL
@@ -606,7 +618,9 @@ export class AgentLoop {
               // Live coder didn't fire, or fired but content is empty.
               // Clean up any empty file the live coder may have created.
               if (liveState && liveState.content.length === 0) {
-                await liveCoder.cleanupEmptyFile().catch(() => {});
+                await liveCoder.cleanupEmptyFile().catch((cleanupErr) => {
+                  console.error('[fibonacci-agent] Failed to cleanup empty file during preview fallback:', cleanupErr);
+                });
               }
 
               // Fall back to opening the editor now and setting the content.
@@ -631,15 +645,29 @@ export class AgentLoop {
           }
 
           if (needsApproval) {
-            const approval = await this.deps.approvals.requestApproval({
-              toolName: call.name,
-              args: call.args,
-              description: describeToolCall(call.name, call.args),
-            });
+            // Race the approval request against the abort signal to prevent
+            // the agent loop from hanging if the user closes VS Code or the
+            // webview while an approval dialog is pending.
+            const approval = await Promise.race([
+              this.deps.approvals.requestApproval({
+                toolName: call.name,
+                args: call.args,
+                description: describeToolCall(call.name, call.args),
+              }),
+              new Promise<ApprovalResponse>((resolve) => {
+                this.abortController?.signal.addEventListener(
+                  'abort',
+                  () => resolve({ id: '', approved: false, reason: 'cancelled' }),
+                  { once: true }
+                );
+              }),
+            ]);
             if (!approval.approved) {
               // Revert the preview if one was shown.
               if (previewHandle) {
-                await revertPreview(previewHandle).catch(() => {});
+                await revertPreview(previewHandle).catch((revertErr) => {
+                  console.error('[fibonacci-agent] Failed to revert preview after rejection:', revertErr);
+                });
               }
               toolMsg.approvalState = 'rejected';
               toolMsg.pending = false;
@@ -703,7 +731,9 @@ export class AgentLoop {
             } catch (err) {
               const errMsg = err instanceof Error ? err.message : String(err);
               // Try to revert on commit failure.
-              await revertPreview(previewHandle).catch(() => {});
+              await revertPreview(previewHandle).catch((revertErr) => {
+                console.error('[fibonacci-agent] Failed to revert preview after commit failure:', revertErr);
+              });
               result = { ok: false, output: `Save failed: ${errMsg}` };
             }
           } else {
@@ -741,7 +771,9 @@ export class AgentLoop {
         // After processing all tool calls, clean up any empty files that the
         // live coder may have created but that were never filled with content.
         // This prevents orphaned empty files from accumulating on disk.
-        await liveCoder.cleanupEmptyFile().catch(() => {});
+        await liveCoder.cleanupEmptyFile().catch((cleanupErr) => {
+          console.error('[fibonacci-agent] Failed to cleanup empty file:', cleanupErr);
+        });
 
         // CRITICAL FIX: If the model's response text indicates task completion,
         // stop the loop after this iteration. This prevents the model from
@@ -829,61 +861,293 @@ export class AgentLoop {
     const userText = (lastUser?.content ?? '').toLowerCase();
     const isFa = language === 'fa';
 
+    // Try to extract a specific filename from user's request
+    const fileNameMatch = userText.match(/(?:ساز|ایجاد|نویس|create|make|build|write)\s+([\w-]+\.(?:html|js|ts|py|json|css|md|txt|jsx|tsx|vue|svelte))/i) ||
+                          userText.match(/([\w-]+\.(?:html|js|ts|py|json|css|md|txt|jsx|tsx|vue|svelte))/i);
+    const suggestedFilename = fileNameMatch ? fileNameMatch[1] : null;
+
     let filename: string;
     let content: string;
 
-    if (userText.includes('html') || userText.includes('صفحه') || userText.includes('landing') || userText.includes('سایت')) {
-      filename = 'index.html';
-      content = isFa
-        ? `<!DOCTYPE html>
+    // If user specified a filename like login.html, use it
+    if (suggestedFilename && suggestedFilename.endsWith('.html')) {
+      filename = suggestedFilename;
+      const isLogin = suggestedFilename.includes('login') || userText.includes('login') || userText.includes('ورود') || userText.includes('signin') || userText.includes('sign in');
+      const isRegister = suggestedFilename.includes('register') || userText.includes('register') || userText.includes('ثبت نام') || userText.includes('signup');
+      
+      if (isLogin) {
+        content = isFa
+          ? `<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>صفحه فرود</title>
+  <title>ورود</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Vazirmatn', sans-serif; background: #1a1a2e; color: #fff; }
-    .hero { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2rem; }
-    .hero h1 { font-size: 3rem; margin-bottom: 1rem; background: linear-gradient(135deg, #FE03C3, #3794ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .hero p { font-size: 1.2rem; color: #aaa; margin-bottom: 2rem; max-width: 600px; }
-    .cta { padding: 1rem 2rem; background: #FE03C3; color: #fff; border: none; border-radius: 8px; font-size: 1.1rem; cursor: pointer; transition: transform 0.2s; }
-    .cta:hover { transform: translateY(-2px); }
+    body { font-family: 'Vazirmatn', sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .login-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 3rem; width: 100%; max-width: 400px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
+    .login-card h1 { text-align: center; margin-bottom: 0.5rem; background: linear-gradient(135deg, #FE03C3, #3794ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 2rem; }
+    .login-card .subtitle { text-align: center; color: #aaa; margin-bottom: 2rem; }
+    .form-group { margin-bottom: 1.5rem; }
+    .form-group label { display: block; margin-bottom: 0.5rem; color: #ddd; font-size: 0.9rem; }
+    .form-group input { width: 100%; padding: 1rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-family: inherit; font-size: 1rem; outline: none; transition: border-color 0.2s; }
+    .form-group input:focus { border-color: #FE03C3; }
+    .btn { width: 100%; padding: 1rem; background: linear-gradient(135deg, #FE03C3, #3794ff); border: none; border-radius: 8px; color: #fff; font-size: 1rem; font-family: inherit; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(254,3,195,0.3); }
+    .links { text-align: center; margin-top: 1.5rem; color: #888; }
+    .links a { color: #FE03C3; text-decoration: none; }
+    .links a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
-  <section class="hero">
-    <h1>به صفحه ما خوش آمدید</h1>
-    <p>یک صفحه فرود ساده و زیبا با HTML و CSS. این صفحه توسط Fibonacci Agent ساخته شده است.</p>
-    <button class="cta" onclick="alert('سلام!')">شروع کنید</button>
-  </section>
+  <div class="login-card">
+    <h1>ورود به حساب کاربری</h1>
+    <p class="subtitle">برای ادامه، لطفاً وارد شوید</p>
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="email">ایمیل یا نام کاربری</label>
+        <input type="email" id="email" name="email" required autocomplete="email" placeholder="example@domain.com">
+      </div>
+      <div class="form-group">
+        <label for="password">رمز عبور</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="••••••••">
+      </div>
+      <button type="submit" class="btn">ورود</button>
+    </form>
+    <div class="links">
+      <a href="#">رمز عبور را فراموش کرده‌ام</a> | <a href="#">ثبت نام</a>
+    </div>
+  </div>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      alert('فرم ورود ارسال شد! (این یک دمو است)');
+    });
+  </script>
 </body>
 </html>`
-        : `<!DOCTYPE html>
+          : `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Landing Page</title>
+  <title>Login</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #fff; }
-    .hero { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2rem; }
-    .hero h1 { font-size: 3rem; margin-bottom: 1rem; background: linear-gradient(135deg, #FE03C3, #3794ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .hero p { font-size: 1.2rem; color: #aaa; margin-bottom: 2rem; max-width: 600px; }
-    .cta { padding: 1rem 2rem; background: #FE03C3; color: #fff; border: none; border-radius: 8px; font-size: 1.1rem; cursor: pointer; transition: transform 0.2s; }
-    .cta:hover { transform: translateY(-2px); }
+    body { font-family: system-ui, sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .login-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 3rem; width: 100%; max-width: 400px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
+    .login-card h1 { text-align: center; margin-bottom: 0.5rem; background: linear-gradient(135deg, #FE03C3, #3794ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 2rem; }
+    .login-card .subtitle { text-align: center; color: #aaa; margin-bottom: 2rem; }
+    .form-group { margin-bottom: 1.5rem; }
+    .form-group label { display: block; margin-bottom: 0.5rem; color: #ddd; font-size: 0.9rem; }
+    .form-group input { width: 100%; padding: 1rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-family: inherit; font-size: 1rem; outline: none; transition: border-color 0.2s; }
+    .form-group input:focus { border-color: #FE03C3; }
+    .btn { width: 100%; padding: 1rem; background: linear-gradient(135deg, #FE03C3, #3794ff); border: none; border-radius: 8px; color: #fff; font-size: 1rem; font-family: inherit; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(254,3,195,0.3); }
+    .links { text-align: center; margin-top: 1.5rem; color: #888; }
+    .links a { color: #FE03C3; text-decoration: none; }
+    .links a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
-  <section class="hero">
-    <h1>Welcome to Our Page</h1>
-    <p>A simple and beautiful landing page with HTML and CSS. This page was created by Fibonacci Agent.</p>
-    <button class="cta" onclick="alert('Hello!')">Get Started</button>
-  </section>
+  <div class="login-card">
+    <h1>Login to Your Account</h1>
+    <p class="subtitle">Please sign in to continue</p>
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="email">Email or Username</label>
+        <input type="email" id="email" name="email" required autocomplete="email" placeholder="example@domain.com">
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="••••••••">
+      </div>
+      <button type="submit" class="btn">Sign In</button>
+    </form>
+    <div class="links">
+      <a href="#">Forgot Password?</a> | <a href="#">Sign Up</a>
+    </div>
+  </div>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      alert('Login form submitted! (This is a demo)');
+    });
+  </script>
 </body>
 </html>`;
-    } else if (userText.includes('javascript') || userText.includes('js') || userText.includes('جاوا اسکریپت') || userText.includes('جاوااسکریپت')) {
+      } else if (isRegister) {
+        content = isFa
+          ? `<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ثبت نام</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Vazirmatn', sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .register-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 3rem; width: 100%; max-width: 400px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
+    .register-card h1 { text-align: center; margin-bottom: 0.5rem; background: linear-gradient(135deg, #FE03C3, #3794ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 2rem; }
+    .register-card .subtitle { text-align: center; color: #aaa; margin-bottom: 2rem; }
+    .form-group { margin-bottom: 1.5rem; }
+    .form-group label { display: block; margin-bottom: 0.5rem; color: #ddd; font-size: 0.9rem; }
+    .form-group input { width: 100%; padding: 1rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-family: inherit; font-size: 1rem; outline: none; transition: border-color 0.2s; }
+    .form-group input:focus { border-color: #FE03C3; }
+    .btn { width: 100%; padding: 1rem; background: linear-gradient(135deg, #FE03C3, #3794ff); border: none; border-radius: 8px; color: #fff; font-size: 1rem; font-family: inherit; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(254,3,195,0.3); }
+    .links { text-align: center; margin-top: 1.5rem; color: #888; }
+    .links a { color: #FE03C3; text-decoration: none; }
+    .links a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="register-card">
+    <h1>ایجاد حساب کاربری</h1>
+    <p class="subtitle">برای شروع، لطفاً ثبت نام کنید</p>
+    <form id="registerForm">
+      <div class="form-group">
+        <label for="name">نام کامل</label>
+        <input type="text" id="name" name="name" required autocomplete="name" placeholder="نام و نام خانوادگی">
+      </div>
+      <div class="form-group">
+        <label for="email">ایمیل</label>
+        <input type="email" id="email" name="email" required autocomplete="email" placeholder="example@domain.com">
+      </div>
+      <div class="form-group">
+        <label for="password">رمز عبور</label>
+        <input type="password" id="password" name="password" required autocomplete="new-password" minlength="8" placeholder="حداقل ۸ کاراکتر">
+      </div>
+      <div class="form-group">
+        <label for="confirmPassword">تکرار رمز عبور</label>
+        <input type="password" id="confirmPassword" name="confirmPassword" required autocomplete="new-password" placeholder="تکرار رمز عبور">
+      </div>
+      <button type="submit" class="btn">ثبت نام</button>
+    </form>
+    <div class="links">
+      <a href="#">حساب کاربری دارید؟ وارد شوید</a>
+    </div>
+  </div>
+  <script>
+    document.getElementById('registerForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const pass = document.getElementById('password').value;
+      const confirm = document.getElementById('confirmPassword').value;
+      if (pass !== confirm) { alert('رمزهای عبور مطابقت ندارند'); return; }
+      alert('فرم ثبت نام ارسال شد! (این یک دمو است)');
+    });
+  </script>
+</body>
+</html>`
+          : `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Register</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .register-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 3rem; width: 100%; max-width: 400px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
+    .register-card h1 { text-align: center; margin-bottom: 0.5rem; background: linear-gradient(135deg, #FE03C3, #3794ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 2rem; }
+    .register-card .subtitle { text-align: center; color: #aaa; margin-bottom: 2rem; }
+    .form-group { margin-bottom: 1.5rem; }
+    .form-group label { display: block; margin-bottom: 0.5rem; color: #ddd; font-size: 0.9rem; }
+    .form-group input { width: 100%; padding: 1rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-family: inherit; font-size: 1rem; outline: none; transition: border-color 0.2s; }
+    .form-group input:focus { border-color: #FE03C3; }
+    .btn { width: 100%; padding: 1rem; background: linear-gradient(135deg, #FE03C3, #3794ff); border: none; border-radius: 8px; color: #fff; font-size: 1rem; font-family: inherit; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(254,3,195,0.3); }
+    .links { text-align: center; margin-top: 1.5rem; color: #888; }
+    .links a { color: #FE03C3; text-decoration: none; }
+    .links a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="register-card">
+    <h1>Create Your Account</h1>
+    <p class="subtitle">Sign up to get started</p>
+    <form id="registerForm">
+      <div class="form-group">
+        <label for="name">Full Name</label>
+        <input type="text" id="name" name="name" required autocomplete="name" placeholder="Your full name">
+      </div>
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required autocomplete="email" placeholder="example@domain.com">
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required autocomplete="new-password" minlength="8" placeholder="At least 8 characters">
+      </div>
+      <div class="form-group">
+        <label for="confirmPassword">Confirm Password</label>
+        <input type="password" id="confirmPassword" name="confirmPassword" required autocomplete="new-password" placeholder="Confirm password">
+      </div>
+      <button type="submit" class="btn">Sign Up</button>
+    </form>
+    <div class="links">
+      <a href="#">Already have an account? Sign In</a>
+    </div>
+  </div>
+  <script>
+    document.getElementById('registerForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const pass = document.getElementById('password').value;
+      const confirm = document.getElementById('confirmPassword').value;
+      if (pass !== confirm) { alert('Passwords do not match'); return; }
+      alert('Registration form submitted! (This is a demo)');
+    });
+  </script>
+</body>
+</html>`;
+      } else {
+        // Generic HTML file with the user's suggested filename
+        content = isFa
+          ? `<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${suggestedFilename.replace('.html', '')}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Vazirmatn', sans-serif; background: #1a1a2e; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 3rem; width: 100%; max-width: 600px; text-align: center; }
+    .card h1 { margin-bottom: 1rem; background: linear-gradient(135deg, #FE03C3, #3794ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .card p { color: #aaa; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${suggestedFilename.replace('.html', '')}</h1>
+    <p>این فایل توسط Fibonacci Agent ساخته شده است. محتوای مورد نظر خود را در اینجا قرار دهید.</p>
+  </div>
+</body>
+</html>`
+          : `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${suggestedFilename.replace('.html', '')}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 3rem; width: 100%; max-width: 600px; text-align: center; }
+    .card h1 { margin-bottom: 1rem; background: linear-gradient(135deg, #FE03C3, #3794ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .card p { color: #aaa; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${suggestedFilename.replace('.html', '')}</h1>
+    <p>This file was created by Fibonacci Agent. Add your content here.</p>
+  </div>
+</body>
+</html>`;
+      }
+    } else if (userText.includes('html') || userText.includes('صفحه') || userText.includes('landing') || userText.includes('سایت')) {
       filename = 'script.js';
       content = isFa
         ? `// یک ابزار کاربردی جاوااسکریپت — ماشین حساب ساده
@@ -1241,7 +1505,9 @@ if __name__ == "__main__":
 
       if (!approval.approved) {
         // Revert the preview — restore original state.
-        await revertPreview(handle).catch(() => {});
+        await revertPreview(handle).catch((revertErr) => {
+          console.error('[fibonacci-agent] Failed to revert preview during mode switch:', revertErr);
+        });
         toolMsg.approvalState = 'rejected';
         toolMsg.pending = false;
         toolMsg.content = isFa
@@ -1426,26 +1692,45 @@ function askingClarifyingQuestion(text: string): boolean {
 function userMessageLooksLikeFileRequest(history: ChatMessage[]): boolean {
   const lastUser = [...history].reverse().find((m) => m.role === 'user');
   if (!lastUser) return false;
-  const text = lastUser.content.toLowerCase();
-  // Persian keywords — broadened to catch generic "write code" requests
-  const keywords = [
-    // Persian — creation verbs
-    'ساز', 'بساز', 'بنویس', 'ایجاد', 'ذخیره', 'ویرایش', 'تغییر', 'اصلاح',
-    // Persian — nouns
-    'فایل', 'پروژه', 'صفحه', 'کد', 'اسکریپت', 'کامپوننت', 'تابع', 'کلاس',
-    'برنامه', 'اپ', 'اپلیکیشن', 'وب‌سایت', 'سایت', 'داشبورد', 'ابزار',
-    // Persian — topics that imply building something
-    'مدیریت', 'ماشین حساب', 'بازی', 'داده', 'تحلیل', 'تبدیل', 'پاک',
-    // Persian — "write a code" / "make a file"
-    'یک کد', 'یک فایل', 'یک برنامه', 'یک اسکریپت', 'یک صفحه', 'یک ابزار',
-    'کد پایتون', 'کد جاوا', 'کد جاوااسکریپت', 'کد تایپ',
-    'پایتون', 'جاوا اسکریپت', 'جاوااسکریپت', 'تیپ‌اسکریپت', 'تایپ‌اسکریپت',
-    // English
-    'create', 'make', 'build', 'write', 'generate', 'file', 'html', 'css',
-    'javascript', 'js ', 'ts ', 'typescript', 'python', 'json', 'script',
-    'component', 'function', 'class', 'project', 'page', 'landing',
-    'code', 'app', 'application', 'website', 'dashboard', 'tool', 'utility',
-    'manager', 'calculator', 'game', 'analyzer',
+  const originalText = lastUser.content;
+  const text = originalText.toLowerCase();
+
+  // Question patterns — explicitly exclude questions first, since users asking
+  // about code conventionally mention programming languages without wanting
+  // the agent to create files.
+  const questionPatterns = [
+    // English question words
+    /^(how|what|why|when|where|which|who|can|could|would|should|is|are|do|does|did|tell me|explain)\b/i,
+    /\?$/,  // ends with question mark
+    // Persian question words
+    /(چگونه|چطور|چطوری|چرا|کجا|کدام|چه|آیا|می‌توان|میتوان|کی|توضیح|چطور\b|چگونه\b)/,
   ];
-  return keywords.some((kw) => text.includes(kw));
+  if (questionPatterns.some((p) => p.test(originalText))) {
+    return false;
+  }
+
+  // Action verbs indicating CREATE/WRITE intent.
+  const actionVerbs = [
+    // English
+    'create', 'make', 'build', 'write', 'generate', 'produce', 'craft',
+    // Persian verbs — creation
+    'بساز', 'ساخت', 'ساز', 'ایجاد', 'بنویس', 'تولید', 'درست کن',
+    // Persian verbs — modification
+    'ذخیره', 'ویرایش', 'تغییر', 'اصلاح', 'به‌روز', 'آپدیت',
+  ];
+
+  const hasActionVerb = actionVerbs.some((v) => text.includes(v));
+  if (!hasActionVerb) return false;
+
+  // Strong imperatives — short clear commands always count.
+  // Examples: "create index.html", "make a calculator", "write code"
+  const imperativeWithFile = /(?:create|make|build|write|generate|produce|craft|بساز|ایجاد|بنویس|تولید)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:simple\s+)?([a-z][\w-]*\.(?:html|js|ts|py|json|css|md|txt|jsx|tsx|vue|svelte))/i.test(originalText);
+  if (imperativeWithFile) return true;
+
+  const imperativeWithObject = /(?:create|make|build|write|generate|produce|craft|بساز|ایجاد|بنویس|تولید)\b/.test(text);
+  if (imperativeWithObject && /(file|project|page|code|script|app|website|component|function|class|program|för|فایل|پروژه|صفحه|کد|اسکریپت|برنامه|اپلیکیشن|سایت|کامپوننت|تابع|کلاس)/.test(text)) {
+    return true;
+  }
+
+  return false;
 }

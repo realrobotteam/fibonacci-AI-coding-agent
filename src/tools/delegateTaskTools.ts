@@ -169,8 +169,8 @@ async function runSubagent(opts: {
   // not the tool registry.
   void subRegistry; // (kept for future isolation)
 
-  const subApprovals = new ApprovalManager(depsRef.registry, true); // auto-approve read-only
-  subApprovals.setAutoApproveReadOnly(true);
+  const subApprovals = new ApprovalManager(depsRef.registry, 'all');
+  subApprovals.setAutoApproveMode('all');
   // Force-approve everything by intercepting the request handler.
   subApprovals.setPendingHandler(() => {
     // No-op — subagent approvals are auto-resolved below.

@@ -68,6 +68,29 @@ export function registerWebTools(registry: ToolRegistry): void {
       };
     }
 
+    // Block requests to private/internal IP ranges (SSRF protection)
+    try {
+      const parsed = new URL(url);
+      const hostname = parsed.hostname;
+      if (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1' ||
+        hostname === '0.0.0.0' ||
+        /^10\./.test(hostname) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+        /^192\.168\./.test(hostname) ||
+        /^169\.254\./.test(hostname)
+      ) {
+        return {
+          ok: false,
+          output: `Blocked: requests to private/internal addresses are not allowed (SSRF protection). Hostname: ${hostname}`,
+        };
+      }
+    } catch {
+      // URL parsing failed — already caught by the https? check above
+    }
+
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);

@@ -113,10 +113,10 @@ export function parseToolCalls(
 
   const calls = [...hermesCalls, ...xmlCalls];
 
-  // Merge prose: prefer the longer of afterHermes/afterXml since one will be
-  // a strict subset of the other.
+  // Merge prose: prefer the SHORTER of afterHermes/afterXml since the parser
+  // that found and stripped tool blocks produces the shorter (clean) text.
   const prose =
-    afterHermes.length >= afterXml.length ? afterHermes : afterXml;
+    afterXml.length <= afterHermes.length ? afterXml : afterHermes;
 
   return { calls, prose, thinking };
 }

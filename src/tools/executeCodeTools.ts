@@ -237,7 +237,9 @@ async function runScriptWithBridge(opts: {
           try {
             const req = JSON.parse(jsonStr) as { id: number; name: string; args: Record<string, unknown> };
             // Execute the tool asynchronously
-            void handleToolCall(req);
+            handleToolCall(req).catch((err) => {
+              console.error('[fibonacci-agent] Unhandled tool call error in execute_code:', err);
+            });
           } catch (err) {
             // Malformed — log to stderr
             child.stdin?.write(JSON.stringify({ error: `malformed tool call: ${err instanceof Error ? err.message : String(err)}` }) + '\n');

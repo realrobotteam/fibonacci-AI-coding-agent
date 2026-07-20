@@ -21,7 +21,7 @@ import { registerMemoryTools } from './tools/memoryTools';
 import { registerExecuteCodeTools } from './tools/executeCodeTools';
 import { registerDelegateTaskTools, setDelegateTaskDeps } from './tools/delegateTaskTools';
 import { FibonacciAgentViewProvider } from './webviewProvider';
-import type { AgentConfig, McpServerConfig, ModelChoice } from './types';
+import type { AgentConfig, AgentMode, AutoApproveMode, McpServerConfig, ModelChoice, ProviderConfig } from './types';
 
 /**
  * Determine the workspace root. If the user has a folder open in VS Code,
@@ -38,7 +38,7 @@ function getWorkspaceRoot(): string {
     try {
       if (!fs.existsSync(folder)) {
         fs.mkdirSync(folder, { recursive: true });
-        console.log(`[fibonacci-agent] Created workspace folder: ${folder}`);
+        console.debug(`[fibonacci-agent] Created workspace folder: ${folder}`);
       }
       if (fs.existsSync(folder)) return folder;
     } catch (err) {
@@ -52,7 +52,7 @@ function getWorkspaceRoot(): string {
   if (!fs.existsSync(fallbackDir)) {
     try {
       fs.mkdirSync(fallbackDir, { recursive: true });
-      console.log(`[fibonacci-agent] Created fallback workspace: ${fallbackDir}`);
+      console.debug(`[fibonacci-agent] Created fallback workspace: ${fallbackDir}`);
     } catch (err) {
       console.error('[fibonacci-agent] Failed to create fallback dir:', err);
     }
@@ -60,8 +60,57 @@ function getWorkspaceRoot(): string {
   return fallbackDir;
 }
 
+function getDefaultProviderConfigs(): ProviderConfig[] {
+  return [
+    {
+      id: 'fibonacci',
+      name: 'Fibonacci AI',
+      baseURL: 'https://my.fibonacci.monster/api/v1',
+      apiKey: '',
+      models: getModelChoices(),
+      enabled: true,
+    },
+    {
+      id: 'openai',
+      name: 'OpenAI',
+      baseURL: 'https://api.openai.com/v1',
+      apiKey: '',
+      models: [
+        { id: 'gpt-4o', label: 'GPT-4o', description: 'Most capable model', outputCost: 15 },
+        { id: 'gpt-4o-mini', label: 'GPT-4o Mini', description: 'Fast and affordable', outputCost: 0.6 },
+        { id: 'gpt-4-turbo', label: 'GPT-4 Turbo', description: 'High performance', outputCost: 10 },
+        { id: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo', description: 'Fast and cost-effective', outputCost: 0.5 },
+      ],
+      enabled: false,
+    },
+    {
+      id: 'anthropic',
+      name: 'Anthropic',
+      baseURL: 'https://api.anthropic.com',
+      apiKey: '',
+      models: [
+        { id: 'claude-3.5-sonnet', label: 'Claude 3.5 Sonnet', description: 'Best balance of speed and intelligence', outputCost: 15 },
+        { id: 'claude-3-opus', label: 'Claude 3 Opus', description: 'Most capable model', outputCost: 75 },
+        { id: 'claude-3-haiku', label: 'Claude 3 Haiku', description: 'Fast and lightweight', outputCost: 0.25 },
+      ],
+      enabled: false,
+    },
+    {
+      id: 'custom',
+      name: 'Custom (OpenAI-compatible)',
+      baseURL: '',
+      apiKey: '',
+      models: [],
+      enabled: false,
+    },
+  ];
+}
+
+// Module-level reference for cleanup in deactivate()
+let mcpManager: McpManager | null = null;
+
 export function activate(context: vscode.ExtensionContext): void {
-  console.log('[fibonacci-agent] activate() called');
+  console.debug('[fibonacci-agent] activate() called');
 
   // CRITICAL FIX (bug F in vscode-app-1783403753675.log):
   // Install global unhandled-rejection and uncaught-exception handlers.
@@ -144,9 +193,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const skills = new SkillsRegistry();
   const approvals = new ApprovalManager(
     registry,
-    vscode.workspace.getConfiguration('fibonacci').get<boolean>('autoApproveReadOnly') ?? true
+    (vscode.workspace.getConfiguration('fibonacci').get<string>('autoApproveMode') as AutoApproveMode) ?? 'none'
   );
-  const mcpManager = new McpManager();
+  mcpManager = new McpManager();
 
   // --- Register skills ---
   registerBuiltInSkills(skills);
@@ -199,6 +248,20 @@ export function activate(context: vscode.ExtensionContext): void {
     skills,
     workspaceRoot,
   });
+
+  // Listen for theme changes and notify webview
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveColorTheme((theme) => {
+      const themeKind = theme.kind === vscode.ColorThemeKind.Light ? 'light' :
+                        theme.kind === vscode.ColorThemeKind.HighContrast ? 'high-contrast' : 'dark';
+      provider.sendToWebview({ type: 'THEME_CHANGE', theme: themeKind });
+    })
+  );
+
+  // Send initial theme
+  const initialThemeKind = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Light ? 'light' :
+                           vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast ? 'high-contrast' : 'dark';
+  provider.sendToWebview({ type: 'THEME_CHANGE', theme: initialThemeKind });
   approvals.setPendingHandler((req) => provider.forwardApprovalRequest(req));
   approvals.setUpdateHandler(() => provider.refreshPendingApprovals());
 
@@ -276,7 +339,7 @@ export function activate(context: vscode.ExtensionContext): void {
       servers.push(server);
       await cfg.update('mcpServers', servers, vscode.ConfigurationTarget.Global);
       try {
-        await mcpManager.connect(server);
+        await mcpManager!.connect(server);
         vscode.window.showInformationMessage(`سرور MCP «${name}» متصل شد.`);
       } catch (err) {
         vscode.window.showErrorMessage(
@@ -313,8 +376,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('fibonacci')) {
         client.refresh();
-        approvals.setAutoApproveReadOnly(
-          vscode.workspace.getConfiguration('fibonacci').get<boolean>('autoApproveReadOnly') ?? true
+        approvals.setAutoApproveMode(
+          (vscode.workspace.getConfiguration('fibonacci').get<string>('autoApproveMode') as AutoApproveMode) ?? 'none'
         );
         provider.pushConfig();
       }
@@ -335,7 +398,7 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
-  // Nothing to clean up — file/terminal/MCP tools are stateless or self-managed.
+  mcpManager?.disconnectAll().catch(() => {});
 }
 
 export function getModelChoices(): ModelChoice[] {
@@ -372,17 +435,47 @@ export function getModelChoices(): ModelChoice[] {
 
 export function getCurrentConfig(): AgentConfig {
   const cfg = vscode.workspace.getConfiguration('fibonacci');
+  const defaultModel = cfg.get<string>('defaultModel') ?? 'fibonacci-1-pro-max';
+  const professionalModel = cfg.get<string>('professionalModel') ?? 'fibonacci-1-agentic';
+  
+  // Get model assignments for each mode
+  const modelAssignments: Record<AgentMode, string> = {
+    coding: cfg.get<string>('modelAssignment.coding') ?? defaultModel,
+    plan: cfg.get<string>('modelAssignment.plan') ?? professionalModel,
+    ask: cfg.get<string>('modelAssignment.ask') ?? defaultModel,
+    debug: cfg.get<string>('modelAssignment.debug') ?? professionalModel,
+    auto: cfg.get<string>('modelAssignment.auto') ?? defaultModel,
+  };
+
+  // Get provider configurations
+  const savedProviders = cfg.get<ProviderConfig[]>('providers') ?? [];
+  const defaultProviders = getDefaultProviderConfigs();
+  const providers = defaultProviders.map((dp) => {
+    const saved = savedProviders.find((p) => p.id === dp.id);
+    return saved ? { ...dp, ...saved } : dp;
+  });
+
   return {
     apiKeySet: !!cfg.get<string>('apiKey'),
-    baseURL: cfg.get<string>('baseURL') ?? 'http://my.fibonacci.monster/api/v1',
-    defaultModel: cfg.get<string>('defaultModel') ?? 'fibonacci-1-pro-max',
-    professionalModel: cfg.get<string>('professionalModel') ?? 'fibonacci-1-agentic',
+    baseURL: cfg.get<string>('baseURL') ?? 'https://my.fibonacci.monster/api/v1',
+    defaultModel,
+    professionalModel,
     language: (cfg.get<string>('language') as 'fa' | 'en') ?? 'fa',
     enableMCP: cfg.get<boolean>('enableMCP') ?? true,
-    autoApproveReadOnly: cfg.get<boolean>('autoApproveReadOnly') ?? true,
+    autoApproveMode: (cfg.get<string>('autoApproveMode') as AutoApproveMode) ??
+      (cfg.get<boolean>('autoApprove') ? 'all' :
+       cfg.get<boolean>('autoApproveReadOnly') === false ? 'none' : 'none'),
     maxIterations: cfg.get<number>('maxIterations') ?? 25,
     hermesMode: cfg.get<boolean>('hermesMode') ?? true,
     showReasoning: cfg.get<boolean>('showReasoning') ?? true,
     parallelToolCalls: cfg.get<boolean>('parallelToolCalls') ?? true,
+    modelAssignments,
+    providers,
+    themeBehavior: (cfg.get<string>('themeBehavior') as import('./types').ThemeBehavior) ?? 'auto',
+    startupView: (cfg.get<string>('startupView') as import('./types').StartupView) ?? 'last-chat',
+    notifyOnTaskComplete: cfg.get<boolean>('notifyOnTaskComplete') ?? true,
+    toolOverrides: cfg.get<Record<string, boolean>>('toolOverrides') ?? {},
+    contextCompression: (cfg.get<string>('contextCompression') as import('./types').ContextCompression) ?? 'auto',
+    historyPath: cfg.get<string>('historyPath') ?? '~/.fibonacci/history',
   };
 }

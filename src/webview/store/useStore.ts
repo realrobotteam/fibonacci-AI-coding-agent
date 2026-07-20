@@ -4,19 +4,24 @@ import type {
   AgentMode,
   AgentState,
   ApprovalRequest,
+  AutoApproveMode,
   ChatMessage,
   McpServerConfig,
   ModeSwitchRequest,
   ModelChoice,
   TodoItem,
+  ToolCategory,
 } from '@shared/index';
 import { Locale, translate } from '../i18n/translations';
+import { postMessage } from '../vscodeApi';
 
 interface UIState {
   activeTab: 'chat' | 'settings';
   expandedToolIds: Record<string, boolean>;
   draftApiKey: string;
   isBusy: boolean;
+  showToolCalls: boolean;
+  editingText: string | null;
 }
 
 export interface HistoryEntry {
@@ -25,6 +30,13 @@ export interface HistoryEntry {
   ts: number;
   messageCount: number;
   model: string;
+}
+
+export interface ToolListItem {
+  name: string;
+  category: ToolCategory;
+  readOnly: boolean;
+  requiresApproval: boolean;
 }
 
 interface Store extends UIState {
@@ -38,16 +50,24 @@ interface Store extends UIState {
   locale: Locale;
   history: HistoryEntry[];
   agentMode: AgentMode;
+  autoApproveMode: AutoApproveMode;
   todos: TodoItem[];
   modeSwitchRequest: ModeSwitchRequest | null;
   skills: Array<{ name: string; description: string; category: string }>;
+  toolList: ToolListItem[];
 
   // actions
   setActiveTab: (tab: 'chat' | 'settings') => void;
   setAgentMode: (mode: AgentMode) => void;
+  setAutoApproveMode: (mode: AutoApproveMode) => void;
   setTodos: (todos: TodoItem[]) => void;
   setModeSwitchRequest: (req: ModeSwitchRequest | null) => void;
   toggleToolExpanded: (id: string) => void;
+  toggleShowToolCalls: () => void;
+  startEdit: (text: string) => void;
+  cancelEdit: () => void;
+  setEditingText: (text: string) => void;
+  regenerateLastMessage: () => void;
   setDraftApiKey: (key: string) => void;
   setError: (msg: string | null) => void;
   setLocale: (l: Locale) => void;
@@ -62,6 +82,7 @@ interface Store extends UIState {
   setMcpServers: (s: McpServerConfig[]) => void;
   setHistory: (entries: HistoryEntry[]) => void;
   setSkills: (skills: Array<{ name: string; description: string; category: string }>) => void;
+  setToolList: (tools: ToolListItem[]) => void;
   t: (key: string, fallback?: string) => string;
 }
 
@@ -72,6 +93,8 @@ export const useStore = create<Store>((set, get) => ({
   expandedToolIds: {},
   draftApiKey: '',
   isBusy: false,
+  showToolCalls: false,
+  editingText: null,
   messages: [],
   pendingApprovals: [],
   currentModel: 'fibonacci-1-pro-max',
@@ -82,16 +105,36 @@ export const useStore = create<Store>((set, get) => ({
   locale: 'fa',
   history: [],
   agentMode: 'coding',
+  autoApproveMode: 'none',
   todos: [],
   modeSwitchRequest: null,
   skills: [],
+  toolList: [],
 
   setActiveTab: (tab) => set({ activeTab: tab }),
   setAgentMode: (mode) => set({ agentMode: mode }),
+  setAutoApproveMode: (mode) => set({ autoApproveMode: mode }),
   setTodos: (todos) => set({ todos }),
   setModeSwitchRequest: (req) => set({ modeSwitchRequest: req }),
   toggleToolExpanded: (id) =>
     set((s) => ({ expandedToolIds: { ...s.expandedToolIds, [id]: !s.expandedToolIds[id] } })),
+  toggleShowToolCalls: () =>
+    set((s) => ({ showToolCalls: !s.showToolCalls })),
+  startEdit: (text) => set({ editingText: text }),
+  cancelEdit: () => set({ editingText: null }),
+  setEditingText: (text) => set({ editingText: text }),
+  regenerateLastMessage: () => {
+    const { messages } = get();
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        const lastUserMsg = messages[i].content;
+        // Remove the user message AND everything after it (the old response)
+        set({ messages: messages.slice(0, i) });
+        postMessage({ type: 'SEND_MESSAGE', text: lastUserMsg });
+        break;
+      }
+    }
+  },
   setDraftApiKey: (key) => set({ draftApiKey: key }),
   setError: (msg) => set({ lastError: msg }),
   setLocale: (l) => set({ locale: l }),
@@ -127,5 +170,6 @@ export const useStore = create<Store>((set, get) => ({
   setMcpServers: (servers) => set({ mcpServers: servers }),
   setHistory: (entries) => set({ history: entries }),
   setSkills: (skills) => set({ skills }),
+  setToolList: (tools) => set({ toolList: tools }),
   t: (key, fallback) => translate(get().locale, key, fallback),
 }));
