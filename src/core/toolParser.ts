@@ -1,69 +1,134 @@
 /**
- * XML-based tool-call parser.
+ * Tool-call parser — supports BOTH formats:
  *
- * The Fibonacci API doesn't reliably populate the structured `tool_calls` field
- * in the OpenAI response — instead, the model emits tool calls as XML-style
- * tags inside the `content` string. This parser extracts them.
+ *   1. XML (Cline-style):      <write_to_file><path>...</path><content>...</content></write_to_file>
+ *   2. Hermes (Nous-style):    <|tool_call>call:write_to_file{path:"...",content:"..."}<tool_call|>
  *
- * Supported format (Cline-style):
+ * The agent can be configured to emit either format. The Hermes format is
+ * preferred when `fibonacci.hermesMode` is true (the model is trained to emit
+ * this format natively). The XML format is the legacy default that works
+ * reliably even with models that don't reliably populate `tool_calls`.
  *
- *   <write_to_file>
- *   <path>src/index.html</path>
- *   <content>
- *   <!DOCTYPE html>
- *   ...
- *   </content>
- *   </write_to_file>
- *
- * Multiple tool calls can be chained in a single response. Each must be a
- * complete open/close tag pair. Nested tags inside a parameter value (e.g.
- * HTML inside <content>) are handled by matching the closing tag of the
- * same name as the tool.
+ * Both parsers also extract `<|channel>thought\n...\n<channel|>` reasoning
+ * blocks so the UI can show them as a collapsible "thinking" section.
  */
+
+import { parseHermesToolCalls, parseHermesThinking } from './hermesTemplate';
 
 export interface ParsedToolCall {
   name: string;
   args: Record<string, unknown>;
-  /** The full XML block as it appeared in the text (for stripping). */
+  /** The full block as it appeared in the text (for stripping). */
   raw: string;
 }
 
-/** Top-level tool tag names we recognize. */
-const KNOWN_TOOLS = new Set<string>([
+export interface ParseToolCallsResult {
+  calls: ParsedToolCall[];
+  prose: string;
+  /** Reasoning channel content (Hermes `<|channel>thought`) — empty if none. */
+  thinking: string;
+}
+
+/** Top-level tool tag names we recognize (for the XML parser). */
+export const KNOWN_TOOLS = new Set<string>([
+  // File
   'read_file',
   'write_to_file',
   'replace_in_file',
   'list_files',
   'search_files',
   'get_active_editor',
+  // Terminal
   'execute_command',
   'run_in_terminal',
   'get_command_output',
+  // MCP
   'list_mcp_tools',
   'call_mcp_tool',
   'get_mcp_resources',
   'manage_mcp_servers',
+  // Todo / mode
   'update_todos',
   'request_mode_switch',
+  // New: web
+  'web_fetch',
+  'web_search',
+  // New: search
+  'grep_search',
+  'glob_files',
+  // New: git
+  'git_status',
+  'git_diff',
+  'git_log',
+  // New: editor
+  'diagnostics',
+  'format_code',
+  'document_symbols',
+  'workspace_symbols',
+  'code_actions',
+  'open_file',
+  // New: code edit
+  'insert_at_line',
+  'delete_lines',
+  'append_to_file',
+  // New: reasoning / meta
+  'think',
+  'clarify',
+  'delegate_task',
+  'memory',
+  'execute_code',
+  // New: skills
+  'list_skills',
+  'view_skill',
+  'invoke_skill',
 ]);
 
+export function registerKnownTool(name: string): void {
+  KNOWN_TOOLS.add(name);
+}
+
 /**
- * Parse all tool-call XML blocks from the assistant's text response.
- * Returns the list of parsed calls plus the text with the blocks stripped
- * (so the caller can show the user a clean prose explanation).
+ * Parse all tool-call blocks (both XML and Hermes) from the assistant's text.
+ * Returns the parsed calls plus the text with the blocks stripped, plus any
+ * reasoning channel content.
  *
- * When `streaming` is true, incomplete tool blocks (open tag without close)
- * at the end of the text are stripped from prose — they're still being streamed.
+ * When `streaming` is true, incomplete blocks at the end of the text are
+ * stripped from prose — they're still being streamed.
  */
-export function parseToolCalls(text: string, options?: { streaming?: boolean }): {
+export function parseToolCalls(
+  text: string,
+  options?: { streaming?: boolean }
+): ParseToolCallsResult {
+  const streaming = options?.streaming === true;
+
+  // 1) Extract Hermes thinking channel first (it wraps the entire response
+  //    when present). The thinking content is captured separately.
+  const { prose: afterThinking, thinking } = parseHermesThinking(text);
+
+  // 2) Parse Hermes tool calls from the post-thinking prose.
+  const { calls: hermesCalls, prose: afterHermes } = parseHermesToolCalls(afterThinking);
+
+  // 3) Parse XML tool calls from the same text.
+  const { calls: xmlCalls, prose: afterXml } = parseXmlToolCalls(afterHermes, streaming);
+
+  const calls = [...hermesCalls, ...xmlCalls];
+
+  // Merge prose: prefer the SHORTER of afterHermes/afterXml since the parser
+  // that found and stripped tool blocks produces the shorter (clean) text.
+  const prose =
+    afterXml.length <= afterHermes.length ? afterXml : afterHermes;
+
+  return { calls, prose, thinking };
+}
+
+/** XML-based tool-call parser (Cline-style). */
+function parseXmlToolCalls(text: string, streaming: boolean): {
   calls: ParsedToolCall[];
   prose: string;
 } {
   const calls: ParsedToolCall[] = [];
   let prose = '';
-  const streaming = options?.streaming === true;
 
-  // Walk the text, looking for `<tool_name>` where tool_name is known.
   let i = 0;
   while (i < text.length) {
     const openIdx = text.indexOf('<', i);
@@ -72,13 +137,10 @@ export function parseToolCalls(text: string, options?: { streaming?: boolean }):
       break;
     }
 
-    // Append any text before the `<` to prose.
     prose += text.slice(i, openIdx);
 
-    // Try to match `<tool_name>` at this position.
     const tagMatch = matchOpenTag(text, openIdx);
     if (!tagMatch) {
-      // Not a tool tag — just a literal `<`. Skip it.
       prose += '<';
       i = openIdx + 1;
       continue;
@@ -86,36 +148,21 @@ export function parseToolCalls(text: string, options?: { streaming?: boolean }):
 
     const { name, afterOpen } = tagMatch;
     if (!KNOWN_TOOLS.has(name)) {
-      // Unknown tag — treat as literal.
       prose += '<';
       i = openIdx + 1;
       continue;
     }
 
-    // Find the matching close tag `</tool_name>`.
     const closeTag = `</${name}>`;
     const nextOpenIdx = findNextOpenTag(text, afterOpen, KNOWN_TOOLS);
     const closeIdx = text.indexOf(closeTag, afterOpen);
     if (closeIdx === -1) {
-      // No closing tag found.
-      if (streaming) {
-        // In streaming mode, this is an incomplete tool block still being
-        // streamed. Strip everything from the open tag to the end — don't
-        // show it as prose.
-        break;
-      }
-      // Non-streaming: treat the `<tool_name>` as literal.
+      if (streaming) break; // incomplete tool block
       prose += '<';
       i = openIdx + 1;
       continue;
     }
-    // If there's another tool opening before our close tag, the model is
-    // chaining tool calls — but that means our close tag belongs to the
-    // inner tool. Restrict closeIdx to before the next opening.
     if (nextOpenIdx !== -1 && nextOpenIdx < closeIdx) {
-      // The inner tool will be picked up in the next iteration. For now,
-      // treat the current `<name>` as a literal (the next iteration starts
-      // from nextOpenIdx).
       prose += '<';
       i = openIdx + 1;
       continue;
@@ -124,14 +171,11 @@ export function parseToolCalls(text: string, options?: { streaming?: boolean }):
     const inner = text.slice(afterOpen, closeIdx);
     const raw = text.slice(openIdx, closeIdx + closeTag.length);
 
-    // Parse inner parameters: each is `<param>value</param>`
     const args = parseParams(inner);
-
     calls.push({ name, args, raw });
     i = closeIdx + closeTag.length;
   }
 
-  // Clean up prose: collapse excessive whitespace, trim.
   prose = prose
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]+\n/g, '\n')
@@ -145,13 +189,11 @@ function matchOpenTag(
   text: string,
   i: number
 ): { name: string; afterOpen: number } | null {
-  // Must start with `<` followed by a letter.
   if (text[i] !== '<' || !/[a-z_]/.test(text[i + 1] ?? '')) return null;
   let j = i + 1;
   while (j < text.length && /[a-z0-9_]/.test(text[j])) j++;
   const name = text.slice(i + 1, j);
   if (!name) return null;
-  // Skip whitespace then expect `>`.
   while (j < text.length && /\s/.test(text[j])) j++;
   if (text[j] !== '>') return null;
   return { name, afterOpen: j + 1 };
@@ -193,7 +235,6 @@ function parseParams(inner: string): Record<string, unknown> {
       continue;
     }
     const value = inner.slice(m.afterOpen, closeIdx);
-    // Try to parse as JSON if it looks like JSON, else keep as string.
     args[m.name] = tryParseJson(value);
     i = closeIdx + closeTag.length;
   }

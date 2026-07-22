@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import type {
   AgentState,
   ApprovalRequest,
+  AutoApproveMode,
   ChatHistoryEntry,
   ChatMessage,
   HostToWebviewMessage,
@@ -16,6 +17,7 @@ import { ToolRegistry } from './core/toolRegistry';
 import { ApprovalManager } from './core/approvalManager';
 import { AgentLoop } from './core/agentLoop';
 import { McpManager } from './tools/mcpTools';
+import type { SkillsRegistry } from './core/skillsRegistry';
 import { getCurrentConfig, getModelChoices } from './extension';
 
 interface ProviderDeps {
@@ -23,6 +25,7 @@ interface ProviderDeps {
   registry: ToolRegistry;
   approvals: ApprovalManager;
   mcpManager: McpManager;
+  skills: SkillsRegistry;
   workspaceRoot: string;
 }
 
@@ -52,12 +55,13 @@ export class FibonacciAgentViewProvider implements vscode.WebviewViewProvider {
       .getConfiguration('fibonacci')
       .get<string>('defaultModel') ?? 'fibonacci-1-pro-max';
 
-    this.agentLoop = new AgentLoop(
-      deps.client,
-      deps.registry,
-      deps.approvals,
-      vscode.workspace.getConfiguration('fibonacci').get<boolean>('autoApproveReadOnly') ?? true,
-      {
+    this.agentLoop = new AgentLoop({
+      client: deps.client,
+      registry: deps.registry,
+      approvals: deps.approvals,
+      autoApproveMode: (vscode.workspace.getConfiguration('fibonacci').get<string>('autoApproveMode') as AutoApproveMode) ?? 'none',
+      skills: deps.skills,
+      callbacks: {
         onAssistantStart: () => {
           const id = makeId();
           const msg: ChatMessage = {
@@ -72,20 +76,64 @@ export class FibonacciAgentViewProvider implements vscode.WebviewViewProvider {
           this.setBusy(true);
           return id;
         },
-        onAssistantContent: (id, content) => {
-          // Replace (not append) — the agent loop sends cleaned prose with
-          // XML tool blocks stripped, so the user never sees raw XML/code.
+        onAssistantContent: (id, content, reasoning) => {
           const msg = this.history.find((m) => m.id === id);
           if (!msg) return;
           msg.content = content;
+          // CRITICAL FIX (bug J — thought is cleared):
+          // Only update reasoning if it's non-empty. During streaming, the
+          // parser may temporarily return empty thinking (e.g. between the
+          // closing of one thought block and the opening of the next). We
+          // must NOT overwrite a previously-set non-empty reasoning with
+          // an empty string — that would "clear" the thinking from the UI.
+          if (reasoning !== undefined && reasoning.length > 0) {
+            msg.reasoning = reasoning;
+          }
           this.post({ type: 'MESSAGE_UPDATE', message: msg });
         },
-        onAssistantEnd: (id, content) => {
+        onAssistantEnd: (id, content, reasoning) => {
           const msg = this.history.find((m) => m.id === id);
           if (!msg) return;
-          msg.content = content || msg.content;
+          // CRITICAL FIX (bug J): Don't overwrite content with empty string.
+          // Only update if the final content is non-empty OR the current
+          // content is empty.
+          if (content && content.length > 0) {
+            msg.content = content;
+          }
+          // CRITICAL FIX (bug J): Don't clear reasoning. Only update if
+          // the final reasoning is non-empty. This prevents the "thought
+          // is cleared" bug where the final parse returns empty thinking
+          // (e.g. because the model emitted thinking in a format the parser
+          // didn't catch) and overwrites the streaming thinking that was
+          // already displayed.
+          if (reasoning !== undefined && reasoning.length > 0) {
+            msg.reasoning = reasoning;
+          }
           msg.pending = false;
+          // If the assistant response is empty (no prose, no reasoning) —
+          // e.g. when the API returns only a tool_call with no text —
+          // generate a simple acknowledgment so the user sees a response.
+          const isEmpty = !msg.content?.trim() && !msg.reasoning?.trim();
+          if (isEmpty) {
+            // Check if there was a successful tool call before this message.
+            // If so, generate a context-appropriate acknowledgment.
+            const prevToolMsg = [...this.history].reverse().find(
+              (m) => m.role === 'tool' && m.approvalState === 'approved'
+            );
+            if (prevToolMsg) {
+              msg.content = 'عملیات با موفقیت انجام شد. آیا کار دیگری هست که بتوانم برایتان انجام دهم؟';
+            } else {
+              msg.content = ' ';  // Single space placeholder — maintains alternation
+            }
+          }
           this.post({ type: 'MESSAGE_UPDATE', message: msg });
+        },
+        onAssistantRemove: (id) => {
+          // Remove an assistant message from the UI (used when the enforcement
+          // detects a hallucination — the hallucinated message is removed so
+          // the user doesn't see duplicate "file created" bubbles).
+          this.history = this.history.filter((m) => m.id !== id);
+          this.post({ type: 'MESSAGE_REMOVE', id });
         },
         onToolStart: (msg) => {
           this.history.push(msg);
@@ -103,11 +151,18 @@ export class FibonacciAgentViewProvider implements vscode.WebviewViewProvider {
           return this.handleModeSwitchRequest(request);
         },
         onError: (err) => {
-          this.post({ type: 'ERROR', message: err });
+          // CRITICAL FIX (bug F): Guard against undefined/null error messages.
+          // If the agent loop somehow passes undefined (shouldn't happen after
+          // the fix in agentLoop.ts, but defensive programming), we substitute
+          // a meaningful message instead of forwarding `undefined` to the webview.
+          const safeMsg = (typeof err === 'string' && err.length > 0)
+            ? err
+            : 'خطای ناشناخته رخ داد. لطفاً تنظیمات API و اتصال شبکه را بررسی کنید. (Unknown error — check API settings and network connection.)';
+          this.post({ type: 'ERROR', message: safeMsg });
           this.setBusy(false);
         },
-      }
-    );
+      },
+    });
   }
 
   /**
@@ -132,7 +187,7 @@ export class FibonacciAgentViewProvider implements vscode.WebviewViewProvider {
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
-    console.log('[fibonacci-agent] resolveWebviewView() called');
+    console.debug('[fibonacci-agent] resolveWebviewView() called');
     this.view = view;
     const distRoot = vscode.Uri.joinPath(
       this.context.extensionUri,
@@ -145,7 +200,7 @@ export class FibonacciAgentViewProvider implements vscode.WebviewViewProvider {
     const distPath = distRoot.fsPath;
     try {
       const entries = fs.readdirSync(distPath);
-      console.log('[fibonacci-agent] dist/webview contents:', entries);
+      console.debug('[fibonacci-agent] dist/webview contents:', entries);
       if (!entries.includes('main.js') || !entries.includes('main.css')) {
         void vscode.window.showErrorMessage(
           'فایل‌های وب‌ویو Fibonacci پیدا نشد. لطفاً افزونه را دوباره نصب کنید.'
@@ -164,10 +219,31 @@ export class FibonacciAgentViewProvider implements vscode.WebviewViewProvider {
     };
 
     view.webview.html = this.getHtml(view.webview, distRoot);
-    console.log('[fibonacci-agent] webview HTML assigned');
+    console.debug('[fibonacci-agent] webview HTML assigned');
 
     view.webview.onDidReceiveMessage(
-      (msg: WebviewToHostMessage) => this.handleMessage(msg),
+      // CRITICAL FIX (bug F): Wrap handleMessage in a try/catch so that if
+      // it throws (or rejects), the error is caught and logged — not
+      // propagated as an unhandled promise rejection (which VS Code would
+      // log as bare `[Extension Host] undefined`).
+      (msg: WebviewToHostMessage) => {
+        try {
+          const result = this.handleMessage(msg);
+          if (result && typeof (result as Promise<void>).catch === 'function') {
+            (result as Promise<void>).catch((err) => {
+              const errMsg = err instanceof Error ? err.message : (err != null ? String(err) : 'Unknown error');
+              console.error('[fibonacci-agent] handleMessage async error:', errMsg);
+              this.post({ type: 'ERROR', message: errMsg });
+              this.setBusy(false);
+            });
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : (err != null ? String(err) : 'Unknown error');
+          console.error('[fibonacci-agent] handleMessage sync error:', errMsg);
+          this.post({ type: 'ERROR', message: errMsg });
+          this.setBusy(false);
+        }
+      },
       undefined,
       this.context.subscriptions
     );
@@ -177,7 +253,18 @@ export class FibonacciAgentViewProvider implements vscode.WebviewViewProvider {
     this.pushConfig();
     this.refreshServers();
     this.pushHistory();
+    this.pushSkills();
     this.updateTodos(this.todos);
+  }
+
+  /** Send the skills list to the webview. */
+  pushSkills(): void {
+    const skills = this.deps.skills.list().map((s) => ({
+      name: s.name,
+      description: s.description,
+      category: s.category,
+    }));
+    this.post({ type: 'SKILLS', skills });
   }
 
   // --- Public API used by extension.ts commands ---
@@ -274,9 +361,53 @@ export class FibonacciAgentViewProvider implements vscode.WebviewViewProvider {
     this.pushHistory();
   }
 
+  /** Rename a chat in history. */
+  renameChat(chatId: string, newTitle: string): void {
+    const all = this.getHistory().map((e) =>
+      e.id === chatId ? { ...e, title: newTitle } : e
+    );
+    void this.context.globalState.update(
+      FibonacciAgentViewProvider.HISTORY_KEY,
+      all
+    );
+    this.pushHistory();
+  }
+
+  /**
+   * Handle prompt improvement — sends the current draft to the model for
+   * a rewrite/upgrade pass, then shows the improved version for the user
+   * to accept, edit, or discard.
+   */
+  private pendingImprovePrompt: { resolve: (improved: string | null) => void } | null = null;
+
+  private async handleImprovePrompt(text: string): Promise<void> {
+    try {
+      // Call the model to improve the prompt
+      const improvementPrompt = `You are a prompt improvement assistant. Rewrite the following user prompt to be clearer, more specific, and more actionable. Preserve the original intent but make it more effective. Return ONLY the improved prompt without any explanation or labels.\n\nOriginal prompt:\n${text}`;
+      
+      // Use the FibonacciClient to send this request
+      const improved = await this.deps.client.improvePrompt(improvementPrompt);
+      
+      // Send the improved version back to the webview
+      const finalImproved = improved || text; // fallback to original if empty
+      this.post({ type: 'IMPROVED_PROMPT', original: text, improved: finalImproved });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('[fibonacci-agent] handleImprovePrompt error:', errMsg);
+      this.post({ type: 'ERROR', message: `Failed to improve prompt: ${errMsg}` });
+    }
+  }
+
   switchModel(modelId: string): void {
     this.currentModel = modelId;
     this.post({ type: 'MODELS', models: getModelChoices(), current: modelId });
+    this.onModelChangedCallbacks.forEach((fn) => fn(modelId));
+  }
+
+  /** Register a callback that fires when the user switches model. */
+  onModelChangedCallbacks: Array<(model: string) => void> = [];
+  onModelChanged(fn: (model: string) => void): void {
+    this.onModelChangedCallbacks.push(fn);
   }
 
   /** Update the todo list visible in the webview. Called by the todo tool. */
@@ -422,9 +553,141 @@ export class FibonacciAgentViewProvider implements vscode.WebviewViewProvider {
       case 'DELETE_CHAT':
         this.deleteChat(msg.chatId);
         break;
+      case 'RENAME_CHAT':
+        this.renameChat(msg.chatId, msg.title);
+        break;
       case 'MODE_SWITCH_RESPONSE':
         this.resolveModeSwitch(msg.approved);
         break;
+      case 'GET_SKILLS':
+        this.pushSkills();
+        break;
+      case 'INVOKE_SKILL': {
+        const skill = this.deps.skills.get(msg.name);
+        if (!skill) {
+          vscode.window.showErrorMessage(`مهارت «${msg.name}» یافت نشد.`);
+          return;
+        }
+        // Inject the skill body as a user message so the agent follows it.
+        const argStr = msg.args ? `\n\nArguments: ${JSON.stringify(msg.args)}` : '';
+        const invokeText = `[Skill invoked: ${skill.name}]\n\n${skill.body}${argStr}`;
+        await this.handleUserMessage(invokeText);
+        break;
+      }
+      case 'SET_AGENT_MODE': {
+        // Update the agent mode in the config
+        await vscode.workspace
+          .getConfiguration('fibonacci')
+          .update('agentMode', msg.mode, vscode.ConfigurationTarget.Global);
+        this.pushConfig();
+        break;
+      }
+      case 'SET_AUTO_APPROVE_MODE': {
+        await vscode.workspace
+          .getConfiguration('fibonacci')
+          .update('autoApproveMode', msg.mode, vscode.ConfigurationTarget.Global);
+        this.deps.approvals.setAutoApproveMode(msg.mode);
+        const autoCfg = getCurrentConfig();
+        autoCfg.autoApproveMode = msg.mode;
+        this.post({ type: 'CONFIG', config: autoCfg });
+        break;
+      }
+      case 'SET_CONFIG': {
+        await vscode.workspace
+          .getConfiguration('fibonacci')
+          .update(msg.key, msg.value, vscode.ConfigurationTarget.Global);
+        // Send config directly with the updated value instead of re-reading
+        const updatedCfg = getCurrentConfig();
+        (updatedCfg as unknown as Record<string, unknown>)[msg.key] = msg.value;
+        this.post({ type: 'CONFIG', config: updatedCfg });
+        break;
+      }
+      case 'IMPROVE_PROMPT': {
+        await this.handleImprovePrompt(msg.text);
+        break;
+      }
+      case 'GET_TOOL_LIST': {
+        const tools = this.deps.registry.list().map((t) => ({
+          name: t.name,
+          category: t.category,
+          readOnly: t.readOnly ?? false,
+          requiresApproval: t.requiresApproval,
+        }));
+        this.post({ type: 'TOOL_LIST', tools });
+        break;
+      }
+      case 'TEST_PROVIDER_CONNECTION': {
+        // Test by attempting a simple request to the provider
+        try {
+          const cfg = vscode.workspace.getConfiguration('fibonacci');
+          const providers = cfg.get<import('./types').ProviderConfig[]>('providers') ?? [];
+          const provider = providers.find((p) => p.id === msg.providerId);
+          if (provider) {
+            // Simple connectivity test — just try to reach the base URL
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 5000);
+            try {
+              const resp = await fetch(provider.baseURL, {
+                method: 'HEAD',
+                signal: controller.signal,
+              });
+              clearTimeout(timeout);
+              this.post({ type: 'PROVIDER_TEST_RESULT', providerId: msg.providerId, ok: resp.ok || resp.status === 404 || resp.status === 405 });
+            } catch {
+              clearTimeout(timeout);
+              this.post({ type: 'PROVIDER_TEST_RESULT', providerId: msg.providerId, ok: false, error: 'Connection failed' });
+            }
+          } else {
+            this.post({ type: 'PROVIDER_TEST_RESULT', providerId: msg.providerId, ok: false, error: 'Provider not found' });
+          }
+        } catch (err) {
+          this.post({ type: 'PROVIDER_TEST_RESULT', providerId: msg.providerId, ok: false, error: String(err) });
+        }
+        break;
+      }
+      case 'RESET_SETTINGS': {
+        const cfg = vscode.workspace.getConfiguration('fibonacci');
+        const keys = [
+          'autoApproveMode', 'enableMCP', 'hermesMode', 'showReasoning',
+          'parallelToolCalls', 'maxIterations', 'themeBehavior', 'startupView',
+          'notifyOnTaskComplete', 'contextCompression', 'toolOverrides',
+        ];
+        for (const key of keys) {
+          await cfg.update(key, undefined, vscode.ConfigurationTarget.Global);
+        }
+        this.pushConfig();
+        break;
+      }
+      case 'EXPORT_SETTINGS': {
+        const cfg = vscode.workspace.getConfiguration('fibonacci');
+        const allSettings: Record<string, unknown> = {};
+        for (const key of [
+          'apiKey', 'baseURL', 'defaultModel', 'professionalModel', 'language',
+          'enableMCP', 'autoApproveMode', 'maxIterations', 'hermesMode',
+          'showReasoning', 'parallelToolCalls', 'themeBehavior', 'startupView',
+          'notifyOnTaskComplete', 'contextCompression', 'toolOverrides',
+          'modelAssignment', 'mcpServers', 'providers',
+        ]) {
+          const val = cfg.get(key);
+          if (val !== undefined) allSettings[key] = val;
+        }
+        this.post({ type: 'SETTINGS_EXPORT', data: JSON.stringify(allSettings, null, 2) });
+        break;
+      }
+      case 'IMPORT_SETTINGS': {
+        try {
+          const data = JSON.parse(msg.data) as Record<string, unknown>;
+          const cfg = vscode.workspace.getConfiguration('fibonacci');
+          for (const [key, value] of Object.entries(data)) {
+            await cfg.update(key, value, vscode.ConfigurationTarget.Global);
+          }
+          this.pushConfig();
+          vscode.window.showInformationMessage('تنظیمات با موفقیت وارد شد.');
+        } catch {
+          vscode.window.showErrorMessage('خطا در وارد کردن تنظیمات — فایل معتبر نیست.');
+        }
+        break;
+      }
     }
   }
 
@@ -473,6 +736,16 @@ export class FibonacciAgentViewProvider implements vscode.WebviewViewProvider {
       // Auto-save the chat to history after the agent finishes.
       this.saveCurrentToHistory();
       this.pushHistory();
+    } catch (err) {
+      // CRITICAL FIX (bug F): Catch any errors that escape the agent loop.
+      // The agent loop has its own try/catch, but defensive programming means
+      // we should never let an error propagate from here to the webview
+      // message handler (where it would become an unhandled rejection).
+      const errMsg = err instanceof Error
+        ? (err.message || 'Unknown error (empty message)')
+        : (err != null ? String(err) : 'Unknown error (undefined)');
+      console.error('[fibonacci-agent] handleUserMessage error:', errMsg);
+      this.post({ type: 'ERROR', message: errMsg });
     } finally {
       this.setBusy(false);
     }
@@ -480,6 +753,11 @@ export class FibonacciAgentViewProvider implements vscode.WebviewViewProvider {
 
   private post(msg: HostToWebviewMessage): void {
     this.view?.webview.postMessage(msg);
+  }
+
+  /** Public method to send messages to the webview (e.g., theme changes). */
+  public sendToWebview(msg: HostToWebviewMessage): void {
+    this.post(msg);
   }
 
   private pushFullState(): void {

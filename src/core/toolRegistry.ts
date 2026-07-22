@@ -98,7 +98,7 @@ export function schema(
     type: 'object',
     properties,
     required,
-    additionalProperties: false,
+    // Note: do NOT include additionalProperties: false — some APIs reject it.
   };
 }
 
@@ -106,4 +106,11 @@ export const CATEGORY_LABEL: Record<ToolCategory, string> = {
   file: 'فایل',
   terminal: 'ترمینال',
   mcp: 'MCP',
+  web: 'وب',
+  search: 'جست‌وجو',
+  git: 'گیت',
+  editor: 'ویرایشگر',
+  reasoning: 'استدلال',
+  skill: 'مهارت',
+  meta: 'متا',
 };

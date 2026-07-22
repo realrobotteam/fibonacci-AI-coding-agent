@@ -2,7 +2,7 @@
   "name": "fibonacci-agent",
   "displayName": "Fibonacci AI Agent",
   "description": "AI-powered coding assistant with Fibonacci patterns for VS Code",
-  "version": "1.0.3",
+  "version": "2.1.0",
   "publisher": "amirhosseinmehrdoost",
   "author": {
     "name": "amirhossein mehrdoost",
@@ -78,6 +78,11 @@
         "command": "fibonacci.switchModel",
         "title": "Fibonacci: تعویض مدل",
         "category": "Fibonacci"
+      },
+      {
+        "command": "fibonacci.showSkills",
+        "title": "Fibonacci: نمایش مهارت‌ها",
+        "category": "Fibonacci"
       }
     ],
     "configuration": {
@@ -99,11 +104,15 @@
           "default": "fibonacci-1-pro-max",
           "enum": [
             "fibonacci-1-pro-max",
+            "fibonacci-2-coder",
+            "fibonacci-2-sentiment",
             "fibonacci-1-agentic"
           ],
           "enumDescriptions": [
-            "مدل اقتصادی (Pro Max)",
-            "مدل حرفه‌ای (Agentic)"
+            "مدل اقتصادی (Pro Max) - 1x",
+            "مدل کد‌نویس (2.0) - 2x",
+            "مدل آنالیزگر احساسات (2.0) - 1x",
+            "مدل حرفه‌ای (Agentic) - 7x"
           ],
           "description": "مدل پیش‌فرض Fibonacci"
         },
@@ -151,15 +160,82 @@
             }
           }
         },
-        "fibonacci.autoApproveReadOnly": {
-          "type": "boolean",
-          "default": true,
-          "description": "تأیید خودکار ابزارهای فقط‌خواندنی (مانند read_file)"
+        "fibonacci.autoApproveMode": {
+          "type": "string",
+          "default": "none",
+          "enum": ["none", "read-only", "all"],
+          "enumDescriptions": [
+            "تأیید خودکار غیرفعال — هر ابزار نیاز به تأیید دستی دارد",
+            "تأیید خودکار ابزارهای فقط‌خواندنی",
+            "تأیید خودکار همه ابزارها"
+          ],
+          "description": "حالت تأیید خودکار ابزارها"
         },
         "fibonacci.maxIterations": {
           "type": "number",
           "default": 25,
           "description": "حداکثر تکرار حلقه عامل"
+        },
+        "fibonacci.hermesMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "استفاده از قالب Hermes برای فراخوانی ابزارها (<|tool_call>call:...{...}<tool_call|>). در صورت غیرفعال شدن، از قالب XML استفاده می‌شود."
+        },
+        "fibonacci.showReasoning": {
+          "type": "boolean",
+          "default": true,
+          "description": "نمایش کانال استدلال مدل (thinking) در رابط کاربری"
+        },
+        "fibonacci.parallelToolCalls": {
+          "type": "boolean",
+          "default": true,
+          "description": "اجازه اجرای همزمان فراخوانی‌های ابزار مستقل"
+        },
+        "fibonacci.themeBehavior": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "dark", "light"],
+          "enumDescriptions": [
+            "دنبال کردن پوسته VS Code",
+            "همیشه تاریک",
+            "همیشه روشن"
+          ],
+          "description": "رفتار پوسته رابط کاربری"
+        },
+        "fibonacci.startupView": {
+          "type": "string",
+          "default": "last-chat",
+          "enum": ["last-chat", "home"],
+          "enumDescriptions": [
+            "بازیابی آخرین گفت‌وگو",
+            "نمایش صفحه اصلی"
+          ],
+          "description": "نمای شروع برنامه"
+        },
+        "fibonacci.notifyOnTaskComplete": {
+          "type": "boolean",
+          "default": true,
+          "description": "اعلام پایان وظیفه طولانی"
+        },
+        "fibonacci.contextCompression": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "manual"],
+          "enumDescriptions": [
+            "فشرده‌سازی خودکار زمینه",
+            "فشرده‌سازی دستی"
+          ],
+          "description": "نحوه مدیریت طول مکالمه"
+        },
+        "fibonacci.historyPath": {
+          "type": "string",
+          "default": "~/.fibonacci/history",
+          "description": "مسیر ذخیره‌سازی تاریخچه گفت‌وگوها"
+        },
+        "fibonacci.toolOverrides": {
+          "type": "object",
+          "default": {},
+          "description": "بازنویسی ابزار — کلیدها نام ابزارها، مقدار true به معنای اجبار تأیید"
         }
       }
     },

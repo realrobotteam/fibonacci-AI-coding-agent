@@ -149,6 +149,12 @@ export class McpManager {
     return this.rpc(session, 'tools/call', { name: tool, arguments: args });
   }
 
+  async callResources(server: string): Promise<unknown> {
+    const session = this.sessions.get(server);
+    if (!session) throw new Error(`MCP server "${server}" is not connected.`);
+    return this.rpc(session, 'resources/list', {});
+  }
+
   private handleMessage(session: McpSession, msg: any): void {
     if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
       const entry = session.pending.get(msg.id);
@@ -174,13 +180,21 @@ export class McpManager {
           reject(new Error(`Cannot write to MCP server: ${err.message}`));
         }
       });
-      // Timeout
-      setTimeout(() => {
+      // Timeout — clear timer on resolution to prevent reference leak
+      const timer = setTimeout(() => {
         if (session.pending.has(id)) {
           session.pending.delete(id);
           reject(new Error(`Timeout calling ${method} on MCP server "${session.config.name}"`));
         }
       }, 30_000);
+      // Wrap resolve/reject to clear the timer on completion
+      const entry = session.pending.get(id);
+      if (entry) {
+        session.pending.set(id, {
+          resolve: (v) => { clearTimeout(timer); entry.resolve(v); },
+          reject: (e) => { clearTimeout(timer); entry.reject(e); },
+        });
+      }
     });
   }
 }
@@ -267,9 +281,7 @@ export function registerMcpTools(
   registry.register(mcpToolDefinitions[2], async (args) => {
     // Resources aren't supported by all servers — best effort.
     try {
-      const session = (manager as any).sessions.get(String(args.server));
-      if (!session) return { ok: false, output: 'Server is not connected.' };
-      const resp = await (manager as any).rpc(session, 'resources/list', {});
+      const resp = await manager.callResources(String(args.server));
       return { ok: true, output: JSON.stringify(resp, null, 2) };
     } catch (err) {
       return { ok: false, output: `Server does not support resources: ${(err as Error).message}` };

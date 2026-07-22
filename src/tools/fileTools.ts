@@ -21,8 +21,18 @@ import { structuredPatch } from 'diff';
  */
 function getCurrentWorkspaceRoot(): string {
   // Check VS Code workspace first
+  // CRITICAL FIX (bug L2): Ensure the workspace folder EXISTS before using it.
   const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (folder) return folder;
+  if (folder) {
+    try {
+      if (!fsSync.existsSync(folder)) {
+        fsSync.mkdirSync(folder, { recursive: true });
+      }
+      if (fsSync.existsSync(folder)) return folder;
+    } catch {
+      // fall through to fallback
+    }
+  }
   // Fall back to ~/Documents/fibonacci-agent
   const home = os.homedir();
   const docsDir = path.join(home, 'Documents');
@@ -39,7 +49,19 @@ function getCurrentWorkspaceRoot(): string {
 }
 
 function resolveWorkspacePath(p: string, workspaceRoot: string): string {
-  if (!p) return workspaceRoot;
+  // CRITICAL FIX (bug F1): Properly validate the path.
+  // `String(undefined)` produces "undefined" (truthy), which bypassed the
+  // old `if (!p)` guard. Now we check for non-empty string explicitly.
+  if (typeof p !== 'string' || p.length === 0) {
+    throw new Error('File path is missing or empty. Please provide a valid file path (e.g. "main.py", "src/index.html").');
+  }
+  // CRITICAL FIX (bug F1): Reject paths that end with / or \ — these are
+  // directory paths, not file paths. The model sometimes passes just a
+  // directory path, which previously caused files to be saved as the
+  // directory name itself.
+  if (p.endsWith('/') || p.endsWith('\\')) {
+    throw new Error(`Path "${p}" ends with a slash — it looks like a directory, not a file. Please provide a full file path including the filename (e.g. "${p}index.html").`);
+  }
   if (path.isAbsolute(p)) return p;
   return path.resolve(workspaceRoot, p);
 }
@@ -250,8 +272,34 @@ export function createFileToolExecutors(_workspaceRoot: string) {
     },
 
     write_to_file: async (args: Record<string, unknown>) => {
-      const target = resolveWorkspacePath(String(args.path), getCurrentWorkspaceRoot());
-      const content = String(args.content ?? '');
+      // CRITICAL FIX (bug F1): Validate path before resolving.
+      const pathArg = typeof args.path === 'string' ? args.path : '';
+      if (!pathArg) {
+        return {
+          ok: false,
+          output: 'Error: "path" parameter is missing or empty. Please provide a valid file path (e.g. "main.py", "src/index.html").',
+        };
+      }
+      let target: string;
+      try {
+        target = resolveWorkspacePath(pathArg, getCurrentWorkspaceRoot());
+      } catch (err) {
+        return { ok: false, output: err instanceof Error ? err.message : String(err) };
+      }
+
+      // CRITICAL FIX (bug F2): NEVER auto-delete a directory. If a directory
+      // exists at this path, return an error instead of destroying user data.
+      try {
+        const stat = fsSync.statSync(target);
+        if (stat.isDirectory()) {
+          return {
+            ok: false,
+            output: `Error: "${target}" is a directory, not a file. Please provide a full file path including the filename.`,
+          };
+        }
+      } catch { /* not exist — fine */ }
+
+      const content = typeof args.content === 'string' ? args.content : '';
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.writeFile(target, content, 'utf-8');
       // Auto-open the file in VS Code so the user can see the result.
@@ -263,9 +311,22 @@ export function createFileToolExecutors(_workspaceRoot: string) {
     },
 
     replace_in_file: async (args: Record<string, unknown>) => {
-      const target = resolveWorkspacePath(String(args.path), getCurrentWorkspaceRoot());
+      // CRITICAL FIX (bug F1): Validate path.
+      const pathArg = typeof args.path === 'string' ? args.path : '';
+      if (!pathArg) {
+        return {
+          ok: false,
+          output: 'Error: "path" parameter is missing or empty.',
+        };
+      }
+      let target: string;
+      try {
+        target = resolveWorkspacePath(pathArg, getCurrentWorkspaceRoot());
+      } catch (err) {
+        return { ok: false, output: err instanceof Error ? err.message : String(err) };
+      }
       const original = await fs.readFile(target, 'utf-8');
-      const updated = applySearchReplace(original, String(args.diff));
+      const updated = applySearchReplace(original, String(args.diff ?? ''));
       await fs.writeFile(target, updated, 'utf-8');
       // Auto-open the file in VS Code so the user can see the edit.
       await openFileInEditor(target);

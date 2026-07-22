@@ -2,7 +2,58 @@
 
 An autonomous AI coding agent for the **Fibonacci AI platform** that lives in the VS Code sidebar. Built with TypeScript + React + Tailwind CSS, with full **Persian (RTL)** UI support.
 
-**Version:** 1.0.3 | **VS Code:** 1.85+ | **UI:** Persian (RTL)
+**Version:** 2.1.0 | **VS Code:** 1.85+ | **UI:** Persian (RTL)
+
+## What's New in v2.0.0
+
+This is a massive upgrade inspired by the [Hermes Agent](https://github.com/NousResearch/hermes-agent) architecture. Highlights:
+
+### 🧠 Hermes Chat-Template Support
+The agent now fully supports the Hermes chat template format:
+- Tool calls use `<|tool_call>call:name{args}<tool_call|>` syntax (native to Hermes-trained models)
+- Tool results fed back as `<|tool_response>response:name{value:"..."}<tool_response|>`
+- Reasoning channel `<|channel>thought\n...\n<channel|>` is extracted and shown in a collapsible "استدلال" block in the UI
+- A complete TypeScript port of the Jinja template is in `src/core/hermesTemplate.ts` (renders the exact byte sequence the Jinja template would produce, for debug logging)
+- Backwards compatible: a `fibonacci.hermesMode` setting toggles between Hermes and the legacy XML tool-call format
+
+### 🛠️ 30+ Tools (was 13)
+New tool families:
+
+| Family | Tools |
+|--------|-------|
+| **Web** | `web_fetch`, `web_search` |
+| **Search** | `grep_search` (regex + context lines), `glob_files` (filename patterns) |
+| **Git** | `git_status`, `git_diff`, `git_log` (all read-only) |
+| **Editor intelligence** | `diagnostics`, `format_code`, `document_symbols`, `workspace_symbols`, `code_actions`, `open_file` |
+| **Code edit** | `insert_at_line`, `delete_lines`, `append_to_file` (in addition to `write_to_file`, `replace_in_file`) |
+| **Reasoning** | `think` (a scratchpad for explicit planning) |
+| **Skills** | `list_skills`, `view_skill`, `invoke_skill` |
+
+### 📚 Skills System
+Reusable multi-step procedures (inspired by Hermes skills). Built-in:
+- `debug-error` — systematic debug procedure (reproduce → locate → diagnose → fix → verify)
+- `refactor-extract` — extract a function from duplicated code
+- `write-tests` — generate a test suite for a function/module
+- `explain-code` — explain a codebase in Persian
+- `plan-feature` — plan a new feature end-to-end
+- `safe-edit` — read → locate → edit → verify pattern
+
+### 🎯 Hermes-Grade System Prompt
+A three-tier prompt architecture (stable / context / volatile) mirroring the Hermes Agent design, with explicit guidance for:
+- **Tool-use enforcement** — never describe, always act
+- **Execution discipline** — `<tool_persistence>`, `<mandatory_tool_use>`, `<act_dont_ask>`, `<prerequisite_checks>`, `<verification>`, `<missing_context>`
+- **Task completion** — ship working artifacts, never fabricate
+- **Parallel tool calls** — batch independent calls
+- **Error recovery** — honest reporting + alternative retry
+
+### ⚙️ New Configuration
+| Setting | Default | Description |
+| --- | --- | --- |
+| `fibonacci.hermesMode` | `true` | Use Hermes tool-call format |
+| `fibonacci.showReasoning` | `true` | Show the model's reasoning channel in the UI |
+| `fibonacci.parallelToolCalls` | `true` | Allow concurrent execution of independent tool calls |
+
+---
 
 ## Features
 
@@ -11,7 +62,7 @@ An autonomous AI coding agent for the **Fibonacci AI platform** that lives in th
 - **Two models**: `fibonacci-1-pro-max` (economy) and `fibonacci-1-agentic` (professional)
 - **Two modes**: Coding mode (write/edit/run) and Plan mode (read-only analysis)
 - **Persian RTL UI** with Vazirmatn font
-- **XML-based tool calling** (Cline-style) — works reliably with Fibonacci API
+- **Dual tool-call formats**: Hermes (`<|tool_call>call:...{...}<tool_call|>`) and legacy XML (Cline-style)
 
 ### 🛠️ 13 Built-in Tools
 - **File**: `read_file`, `write_to_file`, `replace_in_file` (SEARCH/REPLACE), `list_files`, `search_files`
@@ -31,7 +82,7 @@ An autonomous AI coding agent for the **Fibonacci AI platform** that lives in th
 - Destructive operations (write, edit, execute) require user approval
 - **Code is NEVER shown in chat** — only file path + status
 - Approval dialog shows only the target (path/command), not full code
-- Read-only tools can be auto-approved (configurable)
+- Read-only tools can be auto-approved, with configurable approval mode (none / read-only / all)
 
 ### 🌐 Persian Language Support
 - Full RTL layout via `tailwindcss-rtl`
@@ -104,7 +155,7 @@ Open **Settings → Fibonacci** or edit `settings.json`:
 | `fibonacci.professionalModel` | `fibonacci-1-agentic` | Professional model |
 | `fibonacci.language` | `fa` | UI language (`fa` or `en`) |
 | `fibonacci.enableMCP` | `true` | Enable MCP integration |
-| `fibonacci.autoApproveReadOnly` | `true` | Auto-approve read-only tools |
+| `fibonacci.autoApproveMode` | `none` | Auto-approve mode (`none`, `read-only`, `all`) |
 | `fibonacci.maxIterations` | `25` | Max agent loop iterations |
 | `fibonacci.mcpServers` | `[]` | MCP server configurations |
 
@@ -184,8 +235,9 @@ The `toolParser.ts` extracts these blocks from the assistant's text response, an
 
 ```
 AI emits tool call → ApprovalManager decides:
-  • Tool is read-only AND autoApproveReadOnly=true → auto-run
-  • Tool is write/execute → show approval dialog
+  • autoApproveMode='all' → auto-run any tool
+  • autoApproveMode='read-only' AND tool is read-only → auto-run
+  • Otherwise → show approval dialog
 User approves → tool runs → result fed back to AI
 User rejects → rejection fed back to AI
 ```
