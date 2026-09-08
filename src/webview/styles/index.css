@@ -1,0 +1,429 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
+  color-scheme: dark light;
+  font-size: 13px;
+  line-height: 1.5;
+
+  /* RGB channel variables backing Tailwind alpha modifiers
+     (bg-brand/10 etc.). Synced to the live VS Code theme at runtime by
+     App.tsx; these are static fallbacks. */
+  --fib-brand-rgb: 0 122 204;
+  --fib-status-success-rgb: 78 201 176;
+  --fib-status-warning-rgb: 204 167 0;
+  --fib-status-error-rgb: 244 135 113;
+  --fib-status-info-rgb: 55 148 255;
+  --fib-elevated-rgb: 37 37 38;
+  --fib-elevated-2-rgb: 42 45 46;
+  --fib-input-rgb: 60 60 60;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--vscode-sideBar-background, #252526);
+  color: var(--vscode-editor-foreground, #cccccc);
+  direction: rtl;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(121, 121, 121, 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(121, 121, 121, 0.5);
+}
+
+/* Section label */
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground, #858585);
+}
+
+/* Tool category colors */
+.text-file-read { color: #3794ff; }
+.text-file-write { color: #4ec9b0; }
+.text-terminal { color: #cca700; }
+.text-mcp { color: #c586c0; }
+.text-web { color: #569cd6; }
+.text-git { color: #f48771; }
+.text-reasoning { color: #c586c0; }
+.text-skill { color: #dcdcaa; }
+.text-delegate { color: #9cdcfe; }
+.text-execute { color: #ce9178; }
+.text-memory { color: #b5cea8; }
+.text-editor { color: #d16969; }
+.text-default { color: #858585; }
+
+/* Markdown prose */
+.prose {
+  color: var(--vscode-editor-foreground, #cccccc);
+  line-height: 1.6;
+  font-size: 13px;
+}
+
+.prose pre {
+  background: var(--vscode-textCodeBlock-background, #1e1e1e);
+  border: 1px solid var(--vscode-panel-border, #333333);
+  padding: 8px 10px;
+  border-radius: 4px;
+  overflow-x: auto;
+  direction: ltr;
+  text-align: left;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  margin: 6px 0;
+  line-height: 1.4;
+}
+
+.prose code {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  background: var(--vscode-textCodeBlock-background, #1e1e1e);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.9em;
+  direction: ltr;
+  display: inline;
+}
+
+.prose p {
+  margin: 4px 0;
+}
+
+.prose ul,
+.prose ol {
+  margin: 4px 0;
+  padding-inline-start: 1.2rem;
+}
+
+.prose li {
+  margin: 1px 0;
+}
+
+.prose h1,
+.prose h2,
+.prose h3 {
+  font-weight: 600;
+  margin: 8px 0 4px;
+}
+
+.prose h1 { font-size: 1.3em; }
+.prose h2 { font-size: 1.15em; }
+.prose h3 { font-size: 1.05em; }
+
+.prose a {
+  color: var(--vscode-textLink-foreground, #3794ff);
+  text-decoration: none;
+}
+.prose a:hover {
+  text-decoration: underline;
+}
+
+.prose blockquote {
+  border-right: 2px solid var(--vscode-textLink-foreground, #3794ff);
+  padding-right: 8px;
+  margin: 6px 0;
+  color: var(--vscode-descriptionForeground, #999);
+  font-style: italic;
+}
+
+.prose table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 6px 0;
+}
+
+.prose th,
+.prose td {
+  border: 1px solid var(--vscode-panel-border, #333333);
+  padding: 3px 6px;
+  /* FIX: use logical alignment so tables follow the RTL/LTR direction. */
+  text-align: start;
+  font-size: 12px;
+}
+
+.prose th {
+  background: var(--vscode-input-background, #3c3c3c);
+  font-weight: 600;
+}
+
+/* Animations */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes slide-up {
+  from { transform: translateY(4px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.animate-slide-up {
+  animation: slide-up 120ms ease-out;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 150ms ease-out;
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.animate-slide-in-right {
+  animation: slide-in-right 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes scale-in {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.animate-scale-in {
+  animation: scale-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Focus styles */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #007acc);
+  outline-offset: -1px;
+}
+
+/* Selection */
+::selection {
+  background-color: rgba(0, 122, 204, 0.3);
+}
+
+/* Transition defaults — FIX: transition only paint-safe properties instead of
+   `all` (which promoted layout thrash on every hover). */
+button,
+input,
+textarea,
+select {
+  transition:
+    background-color 100ms ease,
+    border-color 100ms ease,
+    color 100ms ease,
+    box-shadow 100ms ease;
+}
+
+/* FIX: respect the user's reduced-motion preference for all animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Neomorphism Style ── */
+[data-ui-style="neomorphism"] {
+  --neo-shadow: rgba(0, 0, 0, 0.15);
+  --neo-highlight: rgba(255, 255, 255, 0.05);
+}
+
+[data-ui-style="neomorphism"] body {
+  background: var(--vscode-sideBar-background, #252526);
+}
+
+[data-ui-style="neomorphism"] .section-label {
+  letter-spacing: 1px;
+}
+
+/* Neomorphism cards */
+[data-ui-style="neomorphism"] .neo-card,
+[data-ui-style="neomorphism"] section > div > div {
+  background: var(--vscode-sideBar-background, #252526);
+  border: none;
+  box-shadow:
+    6px 6px 12px var(--neo-shadow),
+    -6px -6px 12px var(--neo-highlight);
+  border-radius: 12px;
+}
+
+[data-ui-style="neomorphism"] .neo-card:hover,
+[data-ui-style="neomorphism"] section > div > div:hover {
+  box-shadow:
+    4px 4px 8px var(--neo-shadow),
+    -4px -4px 8px var(--neo-highlight);
+}
+
+/* Neomorphism buttons */
+[data-ui-style="neomorphism"] button {
+  border: none !important;
+  box-shadow:
+    3px 3px 6px var(--neo-shadow),
+    -3px -3px 6px var(--neo-highlight);
+  border-radius: 8px;
+  transition: all 150ms ease;
+}
+
+[data-ui-style="neomorphism"] button:hover {
+  box-shadow:
+    2px 2px 4px var(--neo-shadow),
+    -2px -2px 4px var(--neo-highlight);
+}
+
+[data-ui-style="neomorphism"] button:active {
+  box-shadow:
+    inset 2px 2px 4px var(--neo-shadow),
+    inset -2px -2px 4px var(--neo-highlight);
+}
+
+[data-ui-style="neomorphism"] button[class*="bg-brand"] {
+  box-shadow:
+    3px 3px 6px var(--neo-shadow),
+    -3px -3px 6px var(--neo-highlight),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Neomorphism inputs */
+[data-ui-style="neomorphism"] input,
+[data-ui-style="neomorphism"] textarea,
+[data-ui-style="neomorphism"] select {
+  background: var(--vscode-sideBar-background, #252526) !important;
+  border: none !important;
+  box-shadow:
+    inset 3px 3px 6px var(--neo-shadow),
+    inset -3px -3px 6px var(--neo-highlight);
+  border-radius: 8px;
+}
+
+[data-ui-style="neomorphism"] input:focus,
+[data-ui-style="neomorphism"] textarea:focus,
+[data-ui-style="neomorphism"] select:focus {
+  box-shadow:
+    inset 3px 3px 6px var(--neo-shadow),
+    inset -3px -3px 6px var(--neo-highlight),
+    0 0 0 2px var(--vscode-focusBorder, #007acc);
+}
+
+/* Neomorphism setting rows */
+[data-ui-style="neomorphism"] .flex.items-center.justify-between.text-xs {
+  background: var(--vscode-sideBar-background, #252526);
+  border: none;
+  box-shadow:
+    4px 4px 8px var(--neo-shadow),
+    -4px -4px 8px var(--neo-highlight);
+  border-radius: 12px;
+}
+
+/* Neomorphism toggle — FIX: exclude the sr-only peer input used by the
+   custom Toggle component; styling it made the hidden checkbox visible and
+   produced doubled toggle visuals. */
+[data-ui-style="neomorphism"] input[type="checkbox"]:not(.sr-only) {
+  appearance: none;
+  width: 36px;
+  height: 20px;
+  background: var(--vscode-sideBar-background, #252526);
+  border: none;
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  box-shadow:
+    inset 3px 3px 6px var(--neo-shadow),
+    inset -3px -3px 6px var(--neo-highlight);
+}
+
+[data-ui-style="neomorphism"] input[type="checkbox"]:not(.sr-only)::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  top: 2px;
+  left: 2px;
+  background: var(--vscode-descriptionForeground, #858585);
+  box-shadow:
+    2px 2px 4px var(--neo-shadow),
+    -2px -2px 4px var(--neo-highlight);
+  transition: all 200ms ease;
+}
+
+[data-ui-style="neomorphism"] input[type="checkbox"]:not(.sr-only):checked {
+  background: var(--vscode-button-background, #007acc);
+}
+
+[data-ui-style="neomorphism"] input[type="checkbox"]:not(.sr-only):checked::before {
+  transform: translateX(16px);
+  background: white;
+}
+
+/* Neomorphism status dots */
+[data-ui-style="neomorphism"] .w-2.h-2.rounded-full {
+  box-shadow:
+    1px 1px 2px var(--neo-shadow),
+    -1px -1px 2px var(--neo-highlight);
+}
+
+/* Neomorphism code blocks */
+[data-ui-style="neomorphism"] pre {
+  background: var(--vscode-sideBar-background, #252526) !important;
+  border: none !important;
+  box-shadow:
+    inset 3px 3px 6px var(--neo-shadow),
+    inset -3px -3px 6px var(--neo-highlight);
+}
+
+/* ── Kilo-style tool call code view: syntax token colors ────────────────────
+   Colors derive from VS Code theme variables so they follow the user's
+   light/dark theme automatically; fallbacks match VS Code Dark+ palette. */
+
+.tok-kw {
+  color: var(--vscode-charts-purple, #c586c0);
+}
+.tok-str {
+  color: var(--vscode-charts-orange, #ce9178);
+}
+.tok-num {
+  color: var(--vscode-charts-yellow, #b5cea8);
+}
+.tok-com {
+  color: var(--vscode-descriptionForeground, #6a9955);
+  font-style: italic;
+}
+.tok-tag {
+  color: var(--vscode-charts-red, #f14c4c);
+}
+.tok-attr {
+  color: var(--vscode-charts-blue, #9cdcfe);
+}
+.tok-key {
+  color: var(--vscode-charts-blue, #9cdcfe);
+}
+.tok-punc {
+  opacity: 0.85;
+}

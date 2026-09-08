@@ -1,0 +1,125 @@
+import React from 'react';
+import { useStore } from '../store/useStore';
+import { postMessage as postToHost } from '../vscodeApi';
+
+export const Header: React.FC<{
+  activeTab: 'chat' | 'settings';
+  onNavigate: (tab: 'chat' | 'settings') => void;
+  showHistoryButton?: boolean;
+  onHistoryClick?: () => void;
+}> = ({ activeTab, onNavigate, showHistoryButton = false, onHistoryClick }) => {
+  const t = useStore((s) => s.t);
+  const isBusy = useStore((s) => s.isBusy);
+  const version = useStore((s) => s.config?.version);
+
+  const newChat = () => {
+    onNavigate('chat');
+    postToHost({ type: 'NEW_CHAT' });
+  };
+
+  return (
+    <div className="flex items-center justify-between px-2.5 py-2 border-b border-border-subtle bg-panel">
+      {/* Brand — Kilo-style product name; version lives in the tooltip only */}
+      <button
+        onClick={() => onNavigate('chat')}
+        className="flex items-center min-w-0 hover:opacity-80 transition-opacity"
+        title={version ? `v${version}` : t('app.title')}
+      >
+        <span className="text-sm font-semibold text-text-primary leading-tight">
+          {t('app.title')}
+        </span>
+      </button>
+
+      {/* Actions — icon cluster on the end edge */}
+      <div className="flex items-center gap-1">
+        {showHistoryButton && (
+          <HeaderBtn title={t('history.title')} onClick={onHistoryClick || (() => {})}>
+            <IconClock />
+          </HeaderBtn>
+        )}
+        <HeaderBtn title={t('chat.new')} onClick={newChat} disabled={isBusy}>
+          <IconPlus />
+        </HeaderBtn>
+        <HeaderBtn
+          title={t('settings.title')}
+          onClick={() => onNavigate(activeTab === 'settings' ? 'chat' : 'settings')}
+          active={activeTab === 'settings'}
+        >
+          <IconSettings />
+        </HeaderBtn>
+      </div>
+    </div>
+  );
+};
+
+const HeaderBtn: React.FC<{
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  children: React.ReactNode;
+}> = ({ title, onClick, disabled, active, children }) => (
+  <button
+    title={title}
+    onClick={onClick}
+    disabled={disabled}
+    className={`relative w-6 h-6 flex items-center justify-center rounded-sm transition-all duration-fast disabled:opacity-30 disabled:cursor-not-allowed after:content-[''] after:absolute after:-inset-2.5 ${
+      active
+        ? 'text-brand bg-brand/10'
+        : 'text-text-secondary hover:text-text-primary hover:bg-hover'
+    }`}
+  >
+    {children}
+  </button>
+);
+
+/* ── Icons (24x24 stroke, 1.5px weight) ── */
+
+const IconClock = () => (
+  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <polyline points="12 6 12 12 16 14" />
+  </svg>
+);
+
+const IconPlus = () => (
+  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </svg>
+);
+
+const IconSettings = () => (
+  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
+
+/** Fibonacci golden-spiral logo — keep in sync with media/fibonacci-icon.svg */
+export const LOGO_SPIRAL_PATH =
+  'M 43.3 78.0 L 43.3 78.0 L 43.3 78.0 L 43.3 78.1 L 43.3 78.1 L 43.3 78.1 L 43.3 78.1 L 43.1 78.3 L 43.1 78.3 L 43.1 78.3 L 43.1 78.3 L 43.1 78.3 L 43.0 78.3 L 43.0 78.4 L 43.0 78.4 L 42.9 78.4 L 42.9 78.4 L 42.9 78.4 L 42.7 78.4 L 42.7 78.4 L 42.7 78.3 L 42.6 78.3 L 42.6 78.3 L 42.6 78.3 L 42.5 78.1 L 42.5 78.1 L 42.5 78.0 L 42.5 78.0 L 42.5 77.9 L 42.5 77.9 L 42.5 77.7 L 42.5 77.7 L 42.5 77.6 L 42.5 77.5 L 42.5 77.5 L 42.6 77.3 L 42.6 77.3 L 42.7 77.2 L 42.9 77.2 L 42.9 77.1 L 43.0 77.1 L 43.1 77.1 L 43.3 77.1 L 43.4 77.1 L 43.5 77.1 L 43.7 77.1 L 43.8 77.2 L 43.8 77.2 L 43.9 77.3 L 44.1 77.3 L 44.2 77.5 L 44.3 77.6 L 44.3 77.7 L 44.5 78.0 L 44.5 78.1 L 44.6 78.3 L 44.6 78.5 L 44.5 78.7 L 44.5 78.9 L 44.5 79.1 L 44.3 79.3 L 44.2 79.5 L 44.1 79.8 L 43.9 79.9 L 43.7 80.0 L 43.4 80.3 L 43.1 80.3 L 42.9 80.4 L 42.6 80.6 L 42.3 80.6 L 41.9 80.6 L 41.7 80.4 L 41.3 80.4 L 41.0 80.3 L 40.6 80.0 L 40.3 79.8 L 40.0 79.5 L 39.8 79.2 L 39.5 78.8 L 39.2 78.4 L 39.1 78.0 L 39.0 77.5 L 39.0 77.1 L 39.0 76.5 L 39.0 76.0 L 39.1 75.4 L 39.4 74.9 L 39.6 74.4 L 39.9 73.8 L 40.3 73.3 L 40.8 72.9 L 41.4 72.5 L 42.1 72.1 L 42.7 71.8 L 43.5 71.5 L 44.3 71.4 L 45.2 71.4 L 46.0 71.4 L 46.9 71.7 L 47.8 71.9 L 48.7 72.3 L 49.6 72.9 L 50.4 73.6 L 51.1 74.2 L 51.9 75.2 L 52.4 76.1 L 53.0 77.2 L 53.4 78.4 L 53.6 79.6 L 53.6 81.0 L 53.6 82.4 L 53.4 83.8 L 53.0 85.3 L 52.4 86.8 L 51.6 88.1 L 50.7 89.4 L 49.5 90.8 L 48.1 91.9 L 46.6 92.9 L 44.9 93.9 L 43.0 94.6 L 41.0 95.0 L 38.8 95.2 L 36.7 95.2 L 34.4 95.0 L 32.0 94.4 L 29.7 93.6 L 27.4 92.4 L 25.1 90.9 L 23.1 89.2 L 21.1 87.0 L 19.3 84.7 L 17.8 82.0 L 16.6 79.1 L 15.7 75.8 L 15.1 72.5 L 15.0 68.8 L 15.3 65.2 L 16.1 61.4 L 17.3 57.7 L 18.9 53.9 L 21.2 50.3 L 23.9 46.8 L 27.1 43.5 L 30.9 40.6 L 35.1 38.0 L 39.6 35.9 L 44.8 34.3 L 50.1 33.2 L 55.8 32.8 L 61.7 32.9 L 67.8 33.8 L 73.8 35.6 L 79.9 38.0 L 85.8 41.4 L 91.6 45.6 L 97.0 50.5 L 102.0 56.2 L 106.3 62.8 L 110.0 70.1 L 113.0 78.0';
+
+/** Fibonacci spiral logo */
+export const FibonacciLogo: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} viewBox="0 0 128 128" fill="none" aria-hidden="true">
+    <defs>
+      <linearGradient id="fibG" x1="12%" y1="8%" x2="88%" y2="92%">
+        <stop offset="0%" stopColor="#FE03C3" />
+        <stop offset="100%" stopColor="#A21CAF" />
+      </linearGradient>
+    </defs>
+    <circle cx="43" cy="78" r="10" fill="url(#fibG)" opacity="0.16" />
+    <path
+      d={LOGO_SPIRAL_PATH}
+      fill="none"
+      stroke="url(#fibG)"
+      strokeWidth="8.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+// Keep old export name for backwards compatibility
+export const FibonacciMascot = FibonacciLogo;

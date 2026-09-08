@@ -1,0 +1,452 @@
+{
+  "name": "fibonacci-agent",
+  "displayName": "Fibonacci AI Agent",
+  "description": "AI-powered coding assistant with Fibonacci patterns for VS Code",
+  "version": "2.1.0",
+  "publisher": "amirhosseinmehrdoost",
+  "author": {
+    "name": "amirhossein mehrdoost",
+    "url": "https://github.com/realrobotteam"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/realrobotteam/fibonacci-AI-coding-agent",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/realrobotteam/fibonacci-AI-coding-agent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/realrobotteam/fibonacci-AI-coding-agent/issues"
+  },
+  "icon": "media/fibonacci-icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Other"
+  ],
+  "keywords": [
+    "fibonacci-agent",
+    "ai-coding",
+    "golden-ratio",
+    "code-generator"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:fibonacci.agentView"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fibonacci-sidebar",
+          "title": "Fibonacci Agent",
+          "icon": "media/fibonacci-icon.png"
+        }
+      ]
+    },
+    "views": {
+      "fibonacci-sidebar": [
+        {
+          "type": "webview",
+          "id": "fibonacci.agentView",
+          "name": "Fibonacci Agent",
+          "icon": "media/fibonacci-icon.png",
+          "contextualTitle": "Fibonacci Agent"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "fibonacci.configure",
+        "title": "Fibonacci: پیکربندی تنظیمات",
+        "category": "Fibonacci"
+      },
+      {
+        "command": "fibonacci.addMcpServer",
+        "title": "Fibonacci: افزودن سرور MCP",
+        "category": "Fibonacci"
+      },
+      {
+        "command": "fibonacci.newChat",
+        "title": "Fibonacci: گفت‌وگوی جدید",
+        "category": "Fibonacci"
+      },
+      {
+        "command": "fibonacci.switchModel",
+        "title": "Fibonacci: تعویض مدل",
+        "category": "Fibonacci"
+      },
+      {
+        "command": "fibonacci.showSkills",
+        "title": "Fibonacci: نمایش مهارت‌ها",
+        "category": "Fibonacci"
+      }
+    ],
+    "configuration": {
+      "title": "Fibonacci Agent",
+      "properties": {
+        "fibonacci.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "کلید API پلتفرم Fibonacci",
+          "markdownDescription": "کلید API پلتفرم Fibonacci را وارد کنید."
+        },
+        "fibonacci.baseURL": {
+          "type": "string",
+          "default": "http://my.fibonacci.monster/api/v1",
+          "description": "آدرس پایه API Fibonacci"
+        },
+        "fibonacci.defaultModel": {
+          "type": "string",
+          "default": "fibonacci-1-pro-max",
+          "enum": [
+            "fibonacci-1-pro-max",
+            "fibonacci-2-coder",
+            "fibonacci-2-sentiment",
+            "fibonacci-1-agentic"
+          ],
+          "enumDescriptions": [
+            "مدل اقتصادی (Pro Max) - 1x",
+            "مدل کد‌نویس (2.0) - 2x",
+            "مدل آنالیزگر احساسات (2.0) - 1x",
+            "مدل حرفه‌ای (Agentic) - 7x"
+          ],
+          "description": "مدل پیش‌فرض Fibonacci"
+        },
+        "fibonacci.professionalModel": {
+          "type": "string",
+          "default": "fibonacci-1-agentic",
+          "description": "مدل حرفه‌ای برای وظایف پیچیده"
+        },
+        "fibonacci.language": {
+          "type": "string",
+          "default": "fa",
+          "enum": [
+            "fa",
+            "en"
+          ],
+          "description": "زبان رابط کاربری"
+        },
+        "fibonacci.enableMCP": {
+          "type": "boolean",
+          "default": true,
+          "description": "فعال‌سازی یکپارچه‌سازی سرورهای MCP"
+        },
+        "fibonacci.mcpServers": {
+          "type": "array",
+          "default": [],
+          "description": "فهرست سرورهای MCP پیکربندی‌شده",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string",
+                "description": "آدرس streamable-HTTP سرور MCP"
+              },
+              "headers": {
+                "type": "object",
+                "description": "هدرهای احراز هویت برای سرورهای HTTP",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "transport": {
+                "type": "string",
+                "enum": [
+                  "http",
+                  "stdio"
+                ]
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "command": {
+                "type": "string"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "env": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "fibonacci.autoApproveMode": {
+          "type": "string",
+          "default": "none",
+          "enum": [
+            "none",
+            "read-only",
+            "all"
+          ],
+          "enumDescriptions": [
+            "تأیید خودکار غیرفعال — هر ابزار نیاز به تأیید دستی دارد",
+            "تأیید خودکار ابزارهای فقط‌خواندنی",
+            "تأیید خودکار همه ابزارها"
+          ],
+          "description": "حالت تأیید خودکار ابزارها"
+        },
+        "fibonacci.maxIterations": {
+          "type": "number",
+          "default": 25,
+          "description": "حداکثر تکرار حلقه عامل"
+        },
+        "fibonacci.hermesMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "استفاده از قالب Hermes برای فراخوانی ابزارها (<|tool_call>call:...{...}<tool_call|>). در صورت غیرفعال شدن، از قالب XML استفاده می‌شود."
+        },
+        "fibonacci.showReasoning": {
+          "type": "boolean",
+          "default": true,
+          "description": "نمایش کانال استدلال مدل (thinking) در رابط کاربری"
+        },
+        "fibonacci.parallelToolCalls": {
+          "type": "boolean",
+          "default": true,
+          "description": "اجازه اجرای همزمان فراخوانی‌های ابزار مستقل"
+        },
+        "fibonacci.themeBehavior": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "dark",
+            "light"
+          ],
+          "enumDescriptions": [
+            "دنبال کردن پوسته VS Code",
+            "همیشه تاریک",
+            "همیشه روشن"
+          ],
+          "description": "رفتار پوسته رابط کاربری"
+        },
+        "fibonacci.uiStyle": {
+          "type": "string",
+          "default": "default",
+          "enum": [
+            "default",
+            "neomorphism"
+          ],
+          "enumDescriptions": [
+            "طراحی پیش‌فرض",
+            "طراحی نئومورفیسم"
+          ],
+          "description": "سبک رابط کاربری"
+        },
+        "fibonacci.startupView": {
+          "type": "string",
+          "default": "last-chat",
+          "enum": [
+            "last-chat",
+            "home"
+          ],
+          "enumDescriptions": [
+            "بازیابی آخرین گفت‌وگو",
+            "نمایش صفحه اصلی"
+          ],
+          "description": "نمای شروع برنامه"
+        },
+        "fibonacci.notifyOnTaskComplete": {
+          "type": "boolean",
+          "default": true,
+          "description": "اعلام پایان وظیفه طولانی"
+        },
+        "fibonacci.checkpoints": {
+          "type": "boolean",
+          "default": true,
+          "description": "ایجاد نقطه بازگشت (Checkpoint) قبل از هر تغییر فایل برای قابلیت بازگردانی"
+        },
+        "fibonacci.autoDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "جمع‌کردن خودکار خطاهای VS Code بعد از هر ویرایش فایل و بازخورد دادن آن به عامل"
+        },
+        "fibonacci.customModes": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "حالت‌های سفارشی کاربر. هر حالت به شکل `{\"id\", \"name\", \"icon\", \"prompt\", \"tools?\"}` است: `id` شناسه یکتا (`[a-z0-9-]{1,32}`)، `name` نام نمایشی، `icon` یک ایموجی، `prompt` دستورالعملی که در پرامپت سیستم تزریق می‌شود، و `tools` فهرست اختیاری نام ابزارها برای محدودکردن ابزارهای ارائه‌شده به مدل (خالی = همه ابزارها).",
+          "description": "حالت‌های سفارشی کاربر ({id,name,icon,prompt,tools?})",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "شناسه یکتا ([a-z0-9-]{1,32})"
+              },
+              "name": {
+                "type": "string",
+                "description": "نام نمایشی حالت"
+              },
+              "icon": {
+                "type": "string",
+                "description": "یک ایموجی برای حالت"
+              },
+              "prompt": {
+                "type": "string",
+                "description": "دستورالعمل تزریق‌شده در پرامپت سیستم"
+              },
+              "tools": {
+                "type": "array",
+                "description": "فهرست اختیاری ابزارهای مجاز",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "fibonacci.repoMap": {
+          "type": "boolean",
+          "default": true,
+          "description": "تزریق نقشه فشرده نمادهای مخزن (Repo Map) در پرامپت سیستم برای آشنایی سریع مدل با ساختار پروژه"
+        },
+        "fibonacci.ghostText": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "فعال‌سازی تکمیل خطی خودکار (ghost text) — هر بار درخواست API مصرف می‌کند"
+        },
+        "fibonacci.contextCompression": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "enumDescriptions": [
+            "فشرده‌سازی خودکار زمینه",
+            "فشرده‌سازی دستی"
+          ],
+          "description": "نحوه مدیریت طول مکالمه"
+        },
+        "fibonacci.historyPath": {
+          "type": "string",
+          "default": "~/.fibonacci/history",
+          "description": "مسیر ذخیره‌سازی تاریخچه گفت‌وگوها"
+        },
+        "fibonacci.toolOverrides": {
+          "type": "object",
+          "default": {},
+          "description": "بازنویسی ابزار — کلیدها نام ابزارها، مقدار true به معنای اجبار تأیید"
+        },
+        "fibonacci.modelAssignment": {
+          "type": "object",
+          "default": {},
+          "description": "مدل اختصاص‌داده‌شده به هر حالت عامل",
+          "properties": {
+            "coding": {
+              "type": "string",
+              "description": "مدل حالت کدنویسی"
+            },
+            "plan": {
+              "type": "string",
+              "description": "مدل حالت برنامه‌ریزی"
+            },
+            "ask": {
+              "type": "string",
+              "description": "مدل حالت پرسش"
+            },
+            "debug": {
+              "type": "string",
+              "description": "مدل حالت اشکال‌زدایی"
+            },
+            "auto": {
+              "type": "string",
+              "description": "مدل حالت خودکار"
+            }
+          }
+        },
+        "fibonacci.providers": {
+          "type": "array",
+          "default": [],
+          "description": "ارائه‌دهندگان API پیکربندی‌شده (کلید، آدرس پایه و مدل‌ها)",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "baseURL": { "type": "string" },
+              "apiKey": { "type": "string" },
+              "enabled": { "type": "boolean" },
+              "models": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "label": { "type": "string" },
+                    "description": { "type": "string" },
+                    "outputCost": { "type": "number" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "fibonacci.newChat",
+          "when": "view == fibonacci.agentView",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "build:webview": "vite build",
+    "watch:webview": "vite build --watch",
+    "package": "npm run build:webview && npm run compile -- --production",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src --ext ts",
+    "test": "VITEST_SKIP_UPDATE_CHECK=true vitest run",
+    "vsce:package": "vsce package",
+    "vsce:package:vscode": "npx @vscode/vsce package"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@types/diff": "^7.0.2",
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.55",
+    "@types/react-dom": "^18.2.18",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "@vscode/vsce": "^3.9.2",
+    "autoprefixer": "^10.4.17",
+    "diff": "^5.1.0",
+    "esbuild": "^0.20.0",
+    "eslint": "^8.56.0",
+    "npm-run-all": "^4.1.5",
+    "openai": "^4.26.0",
+    "postcss": "^8.4.33",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwindcss": "^3.4.1",
+    "tailwindcss-rtl": "^0.9.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.12",
+    "vitest": "^4.1.11",
+    "zustand": "^4.5.0"
+  }
+}
