@@ -2,9 +2,9 @@
 
 An autonomous AI coding agent for the **Fibonacci AI platform** that lives in the VS Code sidebar. Built with TypeScript + React + Tailwind CSS, with full **Persian (RTL)** UI support.
 
-**Version:** 2.1.1 | **VS Code:** 1.85+ | **UI:** Persian (RTL)
+**Version:** 2.5.0 beta | **VS Code:** 1.85+ | **UI:** Persian (RTL)
 
-## What's Fixed in v2.1.1
+## What's New in v2.5.0 beta
 
 Security and correctness release:
 - **XSS fix** in the chat markdown renderer (attribute escaping + URL scheme allow-list) and a hardened webview CSP (`unsafe-inline` removed from `script-src`)

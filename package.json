@@ -2,7 +2,7 @@
   "name": "fibonacci-agent",
   "displayName": "Fibonacci AI Agent",
   "description": "AI-powered coding assistant with Fibonacci patterns for VS Code",
-  "version": "2.1.0",
+  "version": "2.5.0",
   "publisher": "amirhosseinmehrdoost",
   "author": {
     "name": "amirhossein mehrdoost",
