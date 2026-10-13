@@ -1,5 +1,11 @@
 # Fibonacci AI Agent — VS Code Extension
-
+<!-- Begin  Tag -->
+<div class="sf-root" data-id="4151067" data-badge="oss-users-love-us-white" style="width:169px">
+    <a href="https://sourceforge.net/projects/fibonacci-ai-coding-agent/" target="_blank">fibonacci-AI-coding-agent</a>
+</div>
+<script>(function () {var sc=document.createElement('script');sc.async=true;sc.src='https://b.sf-syn.com/badge_js?sf_id=4151067';var p=document.getElementsByTagName('script')[0];p.parentNode.insertBefore(sc, p);})();
+</script>
+<!-- End  Tag -->
 An autonomous AI coding agent for the **Fibonacci AI platform** that lives in the VS Code sidebar. Built with TypeScript + React + Tailwind CSS, with full **Persian (RTL)** UI support.
 
 **Version:** 2.1.0 | **VS Code:** 1.85+ | **UI:** Persian (RTL)
